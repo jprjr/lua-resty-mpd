@@ -224,3 +224,7 @@ The events:
 ### `res, err = client:readmessages()`
 
 ### `ok, err = client:sendmessage(name, message)`
+
+## LICENSE
+
+MIT license (see `LICENSE`)
