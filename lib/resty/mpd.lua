@@ -1,9 +1,16 @@
 local tcp
 local unix
+local type = type
 local huge = math.huge
 local tonumber = tonumber
+local match = string.match
+local sub = string.sub
+local find = string.find
+local setmetatable = setmetatable
+local remove = table.remove
+local pairs = pairs
+local ipairs = ipairs
 local len = string.len
-local inspect = require'inspect'
 
 if ngx then
     tcp = ngx.socket.tcp
@@ -47,11 +54,11 @@ local function get_lines(conn, ...)
             return nil, { msg = err }
         end
 
-        if string.match(data,'^OK') then
+        if match(data,'^OK') then
             ok = true
             break
         end
-        local errnum, linenum, cmd, msg = string.match(data,'^ACK %[([^@]+)@([^%]]+)%] %{([^%}]*)%} (.+)$')
+        local errnum, linenum, cmd, msg = match(data,'^ACK %[([^@]+)@([^%]]+)%] %{([^%}]*)%} (.+)$')
         if errnum then
             ok = false
             res = {
@@ -63,12 +70,12 @@ local function get_lines(conn, ...)
             break
         end
 
-        local col = string.find(data,':')
+        local col = find(data,':')
 
         if col then
             local key, val, t
-            key = string.sub(data,1,col-1):lower():gsub('^%s+',''):gsub('%s+$','')
-            val = string.sub(data,col+1):gsub('^%s+',''):gsub('%s+$','')
+            key = sub(data,1,col-1):lower():gsub('^%s+',''):gsub('%s+$','')
+            val = sub(data,col+1):gsub('^%s+',''):gsub('%s+$','')
             t = tonumber(val)
             if t then
                 val = t
@@ -147,18 +154,18 @@ _M.new = function()
 end
 
 function _M:connect(url)
-    local proto = string.match(url,'^(%a+):')
+    local proto = match(url,'^(%a+):')
     local err
     local _
 
     if proto == 'tcp' then
-        local host, port = string.match(url,'tcp://([^:]+):(%d+)')
+        local host, port = match(url,'tcp://([^:]+):(%d+)')
 
         self.proto = 'tcp'
         self.host = host
         self.port = port
     elseif proto == 'unix' then
-        local path = string.match(url,'unix:(.+)')
+        local path = match(url,'unix:(.+)')
 
         self.proto = 'unix'
         self.path = path
@@ -220,7 +227,7 @@ function _M:connected()
         data = data .. p
     end
 
-    if string.match(data,'^OK MPD') then
+    if match(data,'^OK MPD') then
         return true
     end
     self.conn = nil
@@ -903,7 +910,7 @@ for i,v in ipairs({'list','searchaddpl'}) do
             return nil, { msg = 'missing parameters' }
         end
 
-        if string.find(t, ' ') then
+        if find(t, ' ') then
             t = '"' .. t .. '"'
         end
 
@@ -1000,7 +1007,7 @@ end
 -- 3PARM, string, string, string
 function _M:sticker(...)
     local args = {...}
-    local cmd = table.remove(args,1)
+    local cmd = remove(args,1)
 
     if not sticker_cmds[cmd] or #args < sticker_cmds[cmd] then
         return nil, { msg = 'missing parameters' }
