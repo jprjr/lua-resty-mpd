@@ -185,7 +185,7 @@ function _M:connected()
             self.conn, err = tcp()
             if err then return nil, { msg = err } end
 
-            _,err = self.conn:connect(host,port)
+            _,err = self.conn:connect(self.host,self.port)
             if err then
                 self.conn = nil
                 return nil, { msg = err }
