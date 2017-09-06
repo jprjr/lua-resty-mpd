@@ -1,3 +1,4 @@
+-- luacheck: globals ngx
 local tcp
 local unix
 local type = type
@@ -8,16 +9,16 @@ local sub = string.sub
 local find = string.find
 local setmetatable = setmetatable
 local remove = table.remove
-local pairs = pairs
 local ipairs = ipairs
 local len = string.len
+local socket
 
 if ngx then
     tcp = ngx.socket.tcp
     unix = tcp
 else
-    unix = require'socket.unix'
     tcp = require'socket'.tcp
+    unix = require'socket.unix'
 end
 
 local replay_gain_modes = {
@@ -140,7 +141,7 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '1.0.1',
+    _VERSION = '1.0.2',
 }
 _M.__index = _M
 
