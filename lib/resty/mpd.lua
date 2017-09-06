@@ -49,7 +49,6 @@ local function get_lines(conn, ...)
     end
     while(true) do
         local data, err = conn:receive('*l')
-        print(data)
 
         if err then
             return nil, { msg = err }
@@ -138,7 +137,7 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '1.0.3',
+    _VERSION = '1.0.4',
 }
 _M.__index = _M
 
@@ -568,7 +567,7 @@ for _,v in ipairs({'listplaylist','listplaylistinfo','readcomments'}) do
 end
 
 -- 1PARM , optional
-for _,v in ipairs({'listfiles','lsinfo','update','rescan'}) do
+for _,v in ipairs({'listfiles','listall','listallinfo','lsinfo','update','rescan'}) do
     _M[v] = function(self,uri)
         local ok, res
         ok, res = self:ready_to_send()
@@ -891,7 +890,34 @@ for _,v in ipairs({'findadd','searchadd'}) do
     end
 end
 
-for _,v in ipairs({'list','searchaddpl'}) do
+for _,v in ipairs({'list'}) do
+    _M[v] = function(self, t, ...)
+        local rs = {...}
+        if not t then
+            return nil, { msg = 'missing parameters' }
+        end
+
+        if find(t, ' ') then
+            t = '"' .. t .. '"'
+        end
+
+        local cmd = v .. ' ' .. t
+
+        for j=1,#rs,2 do
+            cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
+        end
+
+        local ok, res
+        ok, res = self:ready_to_send()
+        if not ok then return nil, res end
+
+        ok, res = send_and_get(self.conn, cmd, t:lower())
+        if not ok then return nil, res end
+        return res
+    end
+end
+
+for _,v in ipairs({'searchaddpl'}) do
     _M[v] = function(self, t, ...)
         local rs = {...}
         if not t or #rs <= 0 then
@@ -902,7 +928,7 @@ for _,v in ipairs({'list','searchaddpl'}) do
             t = '"' .. t .. '"'
         end
 
-        local cmd = v .. t
+        local cmd = v .. ' ' .. t
 
         for j=1,#rs,2 do
             cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
