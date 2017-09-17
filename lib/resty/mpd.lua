@@ -599,7 +599,7 @@ for _,v in ipairs({'addid'}) do
             return nil, { msg = 'parameter URI required' }
         end
 
-        local cmd = v .. ' ' .. param1
+        local cmd = v .. ' "' .. param1 .. '"'
         if param2 then
             cmd = cmd .. ' ' slidey(param2,0)
         end
