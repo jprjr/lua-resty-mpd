@@ -601,7 +601,7 @@ for _,v in ipairs({'addid'}) do
 
         local cmd = v .. ' "' .. param1 .. '"'
         if param2 then
-            cmd = cmd .. ' ' slidey(param2,0)
+            cmd = cmd .. ' ' .. slidey(param2,0)
         end
 
         local ok, res
