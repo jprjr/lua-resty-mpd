@@ -1,3 +1,4 @@
+-- luacheck: globals ngx
 local tcp
 local unix
 local type = type
@@ -8,7 +9,6 @@ local sub = string.sub
 local find = string.find
 local setmetatable = setmetatable
 local remove = table.remove
-local pairs = pairs
 local ipairs = ipairs
 local len = string.len
 
@@ -16,8 +16,8 @@ if ngx then
     tcp = ngx.socket.tcp
     unix = tcp
 else
-    unix = require'socket.unix'
     tcp = require'socket'.tcp
+    unix = require'socket.unix'
 end
 
 local replay_gain_modes = {
@@ -43,12 +43,12 @@ local function get_lines(conn, ...)
     local splits = {...}
     if #splits > 0 then
         split = {}
-        for j,v in ipairs({...}) do
+        for _,v in ipairs({...}) do
             split[v] = true
         end
     end
     while(true) do
-        local data, err, p = conn:receive('*l')
+        local data, err = conn:receive('*l')
 
         if err then
             return nil, { msg = err }
@@ -111,9 +111,6 @@ end
 
 local function slidey(state, min, max)
     local st
-    local state = state
-    local min = min
-    local max = max
 
     if not min then
         min = huge * -1
@@ -140,7 +137,7 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '1.0.1',
+    _VERSION = '1.0.4',
 }
 _M.__index = _M
 
@@ -155,8 +152,6 @@ end
 
 function _M:connect(url)
     local proto = match(url,'^(%a+):')
-    local err
-    local _
 
     if proto == 'tcp' then
         local host, port = match(url,'tcp://([^:]+):(%d+)')
@@ -178,7 +173,7 @@ function _M:connected()
     if self.conn then
         return true
     end
-    local _,err
+    local data,_,err,p
 
     if self.proto then
         if self.proto == 'tcp' then
@@ -215,7 +210,7 @@ function _M:connected()
 
     self.conn:settimeout(90)
 
-    local data, err, p = self.conn:receive('*l')
+    data, err, p = self.conn:receive('*l')
     if err then
         self.conn = nil
         return nil, { msg = err }
@@ -236,7 +231,7 @@ function _M:connected()
 end
 
 function _M:ready_to_send()
-    local co_ok, ok, res
+    local ok, res
     ok, res = self:connected()
     if not ok then return nil, res end
 
@@ -248,20 +243,30 @@ function _M:ready_to_send()
 end
 
 function _M:idle(...)
-    local co_ok, ok, res
+    local ok, res
     ok, res = self:connected()
     if not ok then return nil, res end
 
     local subs = {...}
     local s = ''
-    for k,v in ipairs(subs) do
+    for _,v in ipairs(subs) do
         s = s .. ' ' .. v
     end
 
     self.idling = true
     ok, res = send_and_get(self.conn,'idle'..s)
-    self.idling = false
-
+    while self.idling do
+      if not ok then
+        if res.msg == 'timeout' then
+          ok, res = get_lines(self.conn)
+        else
+          self.idling = false
+        end
+      else
+        self.idling = false
+      end
+    end
+      
     if not ok then return nil, res end
     if res.changed then
         return res.changed
@@ -274,14 +279,13 @@ function _M:noidle()
     ok, res = self:connected()
     if not ok then return nil, res end
 
-    if self.idling then
-        self.conn:send('noidle\n')
-    end
-    return nil
+    ok, res = send_and_get(self.conn,'noidle')
+    self.idling = false
+    return ok, res
 end
 
 -- 0PARM
-for i,v in ipairs({'clearerror','next','previous','stop','clear','ping','kill'}) do
+for _,v in ipairs({'clearerror','next','previous','stop','clear','ping','kill'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -298,7 +302,7 @@ for i,v in ipairs({'clearerror','next','previous','stop','clear','ping','kill'})
 end
 
 -- 0PARM
-for i,v in ipairs({'outputs'}) do
+for _,v in ipairs({'outputs'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -312,7 +316,7 @@ for i,v in ipairs({'outputs'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'decoders'}) do
+for _,v in ipairs({'decoders'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -326,7 +330,7 @@ for i,v in ipairs({'decoders'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'listplaylists'}) do
+for _,v in ipairs({'listplaylists'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -340,7 +344,7 @@ for i,v in ipairs({'listplaylists'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'listmounts'}) do
+for _,v in ipairs({'listmounts'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -354,7 +358,7 @@ for i,v in ipairs({'listmounts'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'listneighbors'}) do
+for _,v in ipairs({'listneighbors'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -368,7 +372,7 @@ for i,v in ipairs({'listneighbors'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'channels','readmessages'}) do
+for _,v in ipairs({'channels','readmessages'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -382,7 +386,7 @@ for i,v in ipairs({'channels','readmessages'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'commands','notcommands'}) do
+for _,v in ipairs({'commands','notcommands'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -392,7 +396,6 @@ for i,v in ipairs({'commands','notcommands'}) do
 
         if not ok then return nil, res end
         local l = {}
-        local i = 1
         for i=1,#res,1 do
             l[res[i].command] = true
         end
@@ -401,7 +404,7 @@ for i,v in ipairs({'commands','notcommands'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'tagtypes'}) do
+for _,v in ipairs({'tagtypes'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -411,7 +414,6 @@ for i,v in ipairs({'tagtypes'}) do
 
         if not ok then return nil, res end
         local l = {}
-        local i = 1
         for i=1,#res,1 do
             l[res[i].tagtype:lower()] = true
         end
@@ -420,7 +422,7 @@ for i,v in ipairs({'tagtypes'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'urlhandlers'}) do
+for _,v in ipairs({'urlhandlers'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -430,7 +432,6 @@ for i,v in ipairs({'urlhandlers'}) do
 
         if not ok then return nil, res end
         local l = {}
-        local i = 1
         for i=1,#res,1 do
             l[res[i].handler:lower()] = true
             l[res[i].handler:lower():gsub('%:%/%/$','')] = true
@@ -440,7 +441,7 @@ for i,v in ipairs({'urlhandlers'}) do
 end
 
 -- 0PARM
-for i,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status'}) do
+for _,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
@@ -453,9 +454,8 @@ for i,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status'
     end
 end
 
-for i,v in ipairs({'play','playid'}) do
+for _,v in ipairs({'play','playid'}) do
     _M[v] = function(self,state)
-        local state = state
         local cmd = v
         if state then
             state = slidey(state,0)
@@ -473,9 +473,9 @@ for i,v in ipairs({'play','playid'}) do
 end
 
 -- 1PARM > 0
-for i,v in ipairs({'crossfade','disableoutput','enableoutput','toggleoutput'}) do
+for _,v in ipairs({'crossfade','disableoutput','enableoutput','toggleoutput'}) do
     _M[v] = function(self,state)
-        local state = slidey(state,0)
+        state = slidey(state,0)
 
         if state == nil then
             return nil, { msg = 'state should be between 0 and infinity' }
@@ -491,9 +491,9 @@ for i,v in ipairs({'crossfade','disableoutput','enableoutput','toggleoutput'}) d
 end
 
 -- 1PARM < 0
-for i,v in ipairs({'mixrampdelay'}) do
+for _,v in ipairs({'mixrampdelay'}) do
     _M[v] = function(self,state)
-        local state = slidey(state,0)
+        state = slidey(state,0)
 
         if state == nil then
             state = 'nan'
@@ -509,7 +509,7 @@ for i,v in ipairs({'mixrampdelay'}) do
 end
 
 -- 2PARM , not nil, not nil
-for i,v in ipairs({'playlistadd','rename','sendmessage'}) do
+for _,v in ipairs({'playlistadd','rename','sendmessage'}) do
     _M[v] = function(self,name,uri)
         if not name or not uri or len(name) <= 0 or len(uri) <= 0 then
             return nil, { msg = 'missing parameters' }
@@ -526,7 +526,7 @@ for i,v in ipairs({'playlistadd','rename','sendmessage'}) do
 end
 
 -- 2PARM , not nil, not nil
-for i,v in ipairs({'mount'}) do
+for _,v in ipairs({'mount'}) do
     _M[v] = function(self,path,uri)
         if not path or not uri or len(path) <= 0 or len(uri) <= 0 then
             return nil, { msg = 'missing parameters' }
@@ -543,7 +543,7 @@ for i,v in ipairs({'mount'}) do
 end
 
 -- 1PARM , not nil
-for i,v in ipairs({'add','playlistclear','rm','save','password','unmount','subscribe','unsubscribe'}) do
+for _,v in ipairs({'add','playlistclear','rm','save','password','unmount','subscribe','unsubscribe'}) do
     _M[v] = function(self,state)
 
         if state == nil or len(state) <= 0 then
@@ -560,7 +560,7 @@ for i,v in ipairs({'add','playlistclear','rm','save','password','unmount','subsc
 end
 
 -- 1PARM , not nil
-for i,v in ipairs({'listplaylist','listplaylistinfo','readcomments'}) do
+for _,v in ipairs({'listplaylist','listplaylistinfo','readcomments'}) do
     _M[v] = function(self,name)
         if name == nil then
             return nil, { msg = 'missing parameter' }
@@ -576,7 +576,7 @@ for i,v in ipairs({'listplaylist','listplaylistinfo','readcomments'}) do
 end
 
 -- 1PARM , optional
-for i,v in ipairs({'listfiles','lsinfo','update','rescan'}) do
+for _,v in ipairs({'listfiles','listall','listallinfo','lsinfo','update','rescan'}) do
     _M[v] = function(self,uri)
         local ok, res
         ok, res = self:ready_to_send()
@@ -601,16 +601,16 @@ for i,v in ipairs({'listfiles','lsinfo','update','rescan'}) do
 end
 
 -- 1PARM , not nil , > 0 (optional)
-for i,v in ipairs({'addid'}) do
+for _,v in ipairs({'addid'}) do
     _M[v] = function(self,param1, param2)
 
         if param1 == nil then
             return nil, { msg = 'parameter URI required' }
         end
 
-        local cmd = v .. ' ' .. param1
+        local cmd = v .. ' "' .. param1 .. '"'
         if param2 then
-            cmd = cmd .. ' ' slidey(param2,0)
+            cmd = cmd .. ' ' .. slidey(param2,0)
         end
 
         local ok, res
@@ -624,10 +624,10 @@ for i,v in ipairs({'addid'}) do
 end
 
 -- 2 PARM > 0
-for i,v in ipairs({'seek','seekid'}) do
+for _,v in ipairs({'seek','seekid'}) do
     _M[v] = function(self,parm1, parm2)
-        local parm1 = slidey(state,0)
-        local parm2 = slidey(state,0)
+        parm1 = slidey(parm1,0)
+        parm2 = slidey(parm2,0)
 
         if parm1 == nil or parm2 == nil then
             return nil, { msg = 'two parameters > 0 are required' }
@@ -643,9 +643,9 @@ for i,v in ipairs({'seek','seekid'}) do
 end
 
 -- 1PARM, -inf < x < inf
-for i,v in ipairs({'seekcur'}) do
+for _,v in ipairs({'seekcur'}) do
     _M[v] = function(self,state)
-        local state = slidey(state)
+        state = slidey(state)
 
         if state == nil then
             return nil, { msg = 'state should be between -infinity and infinity' }
@@ -661,9 +661,9 @@ for i,v in ipairs({'seekcur'}) do
 end
 
 -- 1PARM, -inf < x < 0
-for i,v in ipairs({'mixrampdb'}) do
+for _,v in ipairs({'mixrampdb'}) do
     _M[v] = function(self,state)
-        local state = slidey(state,nil,0)
+        state = slidey(state,nil,0)
 
         if state == nil then
             return nil, { msg = 'state should be between -infinity and 0' }
@@ -679,9 +679,9 @@ for i,v in ipairs({'mixrampdb'}) do
 end
 
 -- 1PARM, 0/1
-for i,v in ipairs({'consume','random','repeat','random','single','pause'}) do
+for _,v in ipairs({'consume','random','repeat','random','single','pause'}) do
     _M[v] = function(self,state)
-        local state = slidey(state,0,1)
+        state = slidey(state,0,1)
 
         if state == nil then
             return nil, { msg = 'state should be something truthy or falsey'}
@@ -700,9 +700,9 @@ for i,v in ipairs({'consume','random','repeat','random','single','pause'}) do
 end
 
 -- 1PARM, 0 < x <= 100
-for i,v in ipairs({'setvol'}) do
+for _,v in ipairs({'setvol'}) do
     _M[v] = function(self, state)
-        local state = slidey(state,0,100)
+        state = slidey(state,0,100)
 
         if state == nil then
             return nil, { msg = 'state should be between 0 and 100'}
@@ -718,24 +718,24 @@ for i,v in ipairs({'setvol'}) do
 end
 
 -- 3PARM, >0, >0 (optional), >0 (optional) [force colon]
-for i,v in ipairs({'rangeid'}) do
+for _,v in ipairs({'rangeid'}) do
     _M[v] = function(self, id, start, _end)
         if not id then
             return nil, { msg = 'missing required parameter' }
         end
 
-        local id = slidey(id,0)
+        id = slidey(id,0)
 
         local cmd = v .. ' ' .. id .. ' '
 
         if start then
-            local start = slidey(start,0)
+            start = slidey(start,0)
             cmd = cmd .. start
         end
         cmd = cmd .. ':'
 
         if _end then
-            local _end = slidey(_end,0)
+            _end = slidey(_end,0)
             cmd = cmd .. _end
         end
 
@@ -750,21 +750,21 @@ for i,v in ipairs({'rangeid'}) do
 end
 
 -- 3PARM, >0, >0 (optional), >0 (optional)
-for i,v in ipairs({'plchanges','plchangesposid'}) do
+for _,v in ipairs({'plchanges','plchangesposid'}) do
     _M[v] = function(self, version, start, _end)
         if not version then
             return nil, { msg = 'missing required parameter' }
         end
 
-        local version = slidey(version,0)
+        version = slidey(version,0)
 
         local cmd = v .. ' ' .. version
 
         if start then
-            local start = slidey(start,0)
+            start = slidey(start,0)
             cmd = cmd .. ' ' .. start
             if _end then
-                local _end = slidey(start,0)
+                _end = slidey(start,0)
                 cmd = cmd .. ':' .. _end
             end
         end
@@ -787,17 +787,16 @@ for i,v in ipairs({'plchanges','plchangesposid'}) do
 end
 
 -- 2PARM+, 0 <= x <= 255, >0, >0
-for i,v in ipairs({'prio'}) do
+for _,v in ipairs({'prio'}) do
     _M[v] = function(self, prio, ...)
         local rs = {...}
         if not prio or #rs <= 0 then
             return nil, { msg = 'missing parameters' }
         end
 
-        local prio = slidey(prio,0,255)
+        prio = slidey(prio,0,255)
 
         local cmd = v .. ' ' .. prio
-        local j
 
         for j=1,#rs,2 do
             cmd = cmd .. ' ' .. slidey(rs[j],0) .. ':' .. slidey(rs[j+1],0)
@@ -814,7 +813,7 @@ for i,v in ipairs({'prio'}) do
 end
 
 -- PARM PAIRS
-for i,v in ipairs({'find','search'}) do
+for _,v in ipairs({'find','search'}) do
     _M[v] = function(self, ...)
         local rs = {...}
         if #rs <= 0 then
@@ -822,7 +821,6 @@ for i,v in ipairs({'find','search'}) do
         end
 
         local cmd = v
-        local j
 
         for j=1,#rs,2 do
             local a = tonumber(rs[j])
@@ -845,7 +843,7 @@ for i,v in ipairs({'find','search'}) do
 end
 
 
-for i,v in ipairs({'count'}) do
+for _,v in ipairs({'count'}) do
     _M[v] = function(self, ...)
         local rs = {...}
         if #rs <= 0 then
@@ -853,7 +851,6 @@ for i,v in ipairs({'count'}) do
         end
 
         local cmd = v
-        local j
         local group = false
 
         for j=1,#rs,2 do
@@ -879,7 +876,7 @@ for i,v in ipairs({'count'}) do
     end
 end
 
-for i,v in ipairs({'findadd','searchadd'}) do
+for _,v in ipairs({'findadd','searchadd'}) do
     _M[v] = function(self, ...)
         local rs = {...}
         if #rs <= 0 then
@@ -887,7 +884,6 @@ for i,v in ipairs({'findadd','searchadd'}) do
         end
 
         local cmd = v
-        local j
 
         for j=1,#rs,2 do
             cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
@@ -903,7 +899,34 @@ for i,v in ipairs({'findadd','searchadd'}) do
     end
 end
 
-for i,v in ipairs({'list','searchaddpl'}) do
+for _,v in ipairs({'list'}) do
+    _M[v] = function(self, t, ...)
+        local rs = {...}
+        if not t then
+            return nil, { msg = 'missing parameters' }
+        end
+
+        if find(t, ' ') then
+            t = '"' .. t .. '"'
+        end
+
+        local cmd = v .. ' ' .. t
+
+        for j=1,#rs,2 do
+            cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
+        end
+
+        local ok, res
+        ok, res = self:ready_to_send()
+        if not ok then return nil, res end
+
+        ok, res = send_and_get(self.conn, cmd, t:lower())
+        if not ok then return nil, res end
+        return res
+    end
+end
+
+for _,v in ipairs({'searchaddpl'}) do
     _M[v] = function(self, t, ...)
         local rs = {...}
         if not t or #rs <= 0 then
@@ -914,8 +937,7 @@ for i,v in ipairs({'list','searchaddpl'}) do
             t = '"' .. t .. '"'
         end
 
-        local cmd = v .. t
-        local j
+        local cmd = v .. ' ' .. t
 
         for j=1,#rs,2 do
             cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
@@ -932,18 +954,18 @@ for i,v in ipairs({'list','searchaddpl'}) do
 end
 
 -- 2PARM+, 0 <= x <= 255, >0, ... >0
-for i,v in ipairs({'prioid'}) do
+for _,v in ipairs({'prioid'}) do
     _M[v] = function(self, prio, ...)
         local ids = {...}
         if not prio or #ids <= 0 then
             return nil, { msg = 'missing parameters' }
         end
 
-        local prio = slidey(prio,0,255)
+        prio = slidey(prio,0,255)
 
         local cmd = v .. ' ' .. prio
 
-        for j,k in ipairs(ids) do
+        for _,k in ipairs(ids) do
             cmd = cmd .. ' ' .. k
         end
 
@@ -958,13 +980,13 @@ for i,v in ipairs({'prioid'}) do
 end
 
 -- 3PARM, string, >0, >0
-for i,v in ipairs({'playlistmove'}) do
+for _,v in ipairs({'playlistmove'}) do
     _M[v] = function(self, name, from, to)
         if not name or not from or not to then
             return nil, { msg = 'missing parameters' }
         end
-        local from = slidey(from,0)
-        local to = slidey(to,0)
+        from = slidey(from,0)
+        to = slidey(to,0)
 
         local ok, res
         ok, res = self:ready_to_send()
@@ -978,7 +1000,7 @@ end
 
 
 -- 3PARM, string, >0 (optional), >0 (optional)
-for i,v in ipairs({'load'}) do
+for _,v in ipairs({'load'}) do
     _M[v] = function(self, name, start, _end)
         if not name then
             return nil, { msg = 'missing parameters' }
@@ -986,11 +1008,11 @@ for i,v in ipairs({'load'}) do
         local cmd = v .. ' ' .. name
 
         if start then
-            local start = slidey(start,0)
+            start = slidey(start,0)
             if not start or not _end then
                 return nil, { msg = 'start should be a number' }
             end
-            local _end = slidey(_end,0)
+             _end = slidey(_end,0)
             cmd = cmd .. ' ' .. start .. ':' .. _end
         end
 
@@ -1013,9 +1035,9 @@ function _M:sticker(...)
         return nil, { msg = 'missing parameters' }
     end
 
-    local cmd = 'sticker ' .. cmd
+    cmd = 'sticker ' .. cmd
 
-    for i,v in ipairs(cmd) do
+    for _,v in ipairs(cmd) do
         if v == '>' or v == '<' or v == '=' then
             cmd = cmd .. ' ' .. v
         else
@@ -1032,12 +1054,12 @@ function _M:sticker(...)
 end
 
 -- 3PARM, >0, string, string
-for i,v in ipairs({'addtagid'}) do
+for _,v in ipairs({'addtagid'}) do
     _M[v] = function(self, id, tag, val)
         if not id or not tag or not val then
             return nil, { msg = 'missing parameters' }
         end
-        local id = slidey(id,0)
+        id = slidey(id,0)
         if not id then
             return nil, { msg = 'missing parameters' }
         end
@@ -1053,11 +1075,8 @@ for i,v in ipairs({'addtagid'}) do
 end
 
 -- 3PARM, >0, >0, >0 (optional)
-for i,v in ipairs({'move'}) do
+for _,v in ipairs({'move'}) do
     _M[v] = function(self, start, _end, to)
-        local start = start
-        local _end = _end
-        local to = to
         if not to then
             to = _end
             _end = nil
@@ -1095,8 +1114,8 @@ function _M:moveid(from, to)
         return nil, { msg = 'required parameters: from, to' }
     end
 
-    local from = slidey(from,0)
-    local to = slidey(to)
+    from = slidey(from,0)
+    to = slidey(to)
 
     local ok, res
     ok, res = self:ready_to_send()
@@ -1109,7 +1128,6 @@ end
 
 -- 2PARM, >0, >0 optional
 function _M:_delete(start,stop)
-    local start = start
 
     if start then
         start = slidey(start,0)
@@ -1117,7 +1135,6 @@ function _M:_delete(start,stop)
         return nil, { msg = 'missing required pos/start parameter'}
     end
 
-    local stop = stop
     if stop then
         stop = slidey(stop,0)
     end
@@ -1143,14 +1160,14 @@ end
 _M['delete'] = _M._delete
 
 -- 2PARM, >0, string (optional)
-for i,v in ipairs({'cleartagid'}) do
+for _,v in ipairs({'cleartagid'}) do
     _M[v] = function(self, id, tag)
 
         if not id or not tag then
             return nil, { msg = 'missing required parameters' }
         end
 
-        local id = slidey(id,0)
+        id = slidey(id,0)
         if not id then
             return nil, { msg = 'missing required parameters' }
         end
@@ -1172,7 +1189,7 @@ end
 
 
 -- 2PARM, >0, >0
-for i,v in ipairs({'swap','swapid'}) do
+for _,v in ipairs({'swap','swapid'}) do
     _M[v] = function(self, pos1, pos2)
 
         if not pos1 or pos2 then
@@ -1191,7 +1208,6 @@ end
 
 -- 1PARM, > 0 optional
 function _M:playlistid(id)
-    local id = id
     if id then
         id = slidey(id,0)
     end
@@ -1215,13 +1231,13 @@ function _M:playlistid(id)
 end
 
 -- 2PARM, string, >0
-for i,v in ipairs({'playlistdelete'}) do
+for _,v in ipairs({'playlistdelete'}) do
     _M[v] = function(self, name, pos)
         if not name or not pos then
             return nil, { msg = 'missing name or position parameter' }
         end
 
-        local pos = slidey(pos,0)
+        pos = slidey(pos,0)
         if not pos then
             return nil, { msg = 'missing name or position parameter' }
         end
@@ -1236,8 +1252,9 @@ for i,v in ipairs({'playlistdelete'}) do
     end
 end
 
+
 -- 2PARM, string, string
-for i,v in ipairs({'playlistfind','playlistsearch'}) do
+for _,v in ipairs({'playlistfind','playlistsearch'}) do
     _M[v] = function(self, tag, needle)
         if not tag or not needle then
             return nil, { msg = 'missing tag and needle parameters' }
@@ -1254,12 +1271,9 @@ for i,v in ipairs({'playlistfind','playlistsearch'}) do
 end
 
 -- 2PARM, optional > 0 , optional > 0
-for i,v in ipairs({'shuffle'}) do
+for _,v in ipairs({'shuffle'}) do
     _M[v] = function(self, start, _end)
-        local start = start
-        local _end = _end
-
-        local cmd = 'shuffle'
+        local cmd = v
         if start then
             start = slidey(start,0)
             if not _end then
@@ -1279,9 +1293,32 @@ for i,v in ipairs({'shuffle'}) do
     end
 end
 
+-- 2PARM, optional > 0 , optional > 0
+for _,v in ipairs({'playlistinfo'}) do
+    _M[v] = function(self, start, _end)
+        local cmd = v
+        if start then
+            start = slidey(start,0)
+            if _end then
+              _end = slidey(_end,0)
+              cmd = cmd .. ' ' .. start ..':' .. _end
+            else
+              cmd = cmd .. ' ' .. start
+            end
+        end
+
+        local ok, res
+        ok, res = self:ready_to_send()
+        if not ok then return nil, res end
+
+        ok, res = send_and_get(self.conn, cmd, 'file')
+        if not ok then return nil, res end
+        return res
+    end
+end
+
 -- 1PARM, fromlist
 function _M:replay_gain_mode(mode)
-    local mode = mode
     if type(mode) == 'nil' then
         mode = 'off'
     end
