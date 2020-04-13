@@ -586,7 +586,7 @@ for _,v in ipairs({'listfiles','listall','listallinfo','lsinfo','update','rescan
             if v == 'rescan' or v == 'update' then
               ok, res = send_and_get(self.conn, v .. ' "' .. uri .. '"')
             else
-              ok, res = send_and_get(self.conn, v .. ' "' .. uri .. '"', 'file','directory')
+              ok, res = send_and_get(self.conn, v .. ' "' .. uri .. '"', 'file','directory','playlist')
             end
         else
             if v == 'rescan' or v == 'update' then
