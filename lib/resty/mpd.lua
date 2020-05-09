@@ -47,7 +47,7 @@ local sticker_cmds = {
     find = 3,
 }
 
-local function get_lines(conn, ...)
+local function get_lines(self, ...)
     local ok
     local res = {}
     local i = 0
@@ -60,7 +60,9 @@ local function get_lines(conn, ...)
         end
     end
     while(true) do
-        local data, err = conn:receive('*l')
+        self.reading = true
+        local data, err = self.conn:receive('*l')
+        self.reading = false
 
         if err then
             return nil, { msg = err }
@@ -103,18 +105,19 @@ local function get_lines(conn, ...)
             end
         end
     end
+
     return ok, res
 end
 
-local function send_and_get(conn, cmd, ...)
+local function send_and_get(self, cmd, ...)
     local ok, res
-    ok, res = conn:send(cmd .. '\n')
+    ok, res = self.conn:send(cmd .. '\n')
 
     if not ok then
         return nil, { msg = res }
     end
 
-    ok, res = get_lines(conn, ...)
+    ok, res = get_lines(self, ...)
     if not ok then
         return nil, res
     end
@@ -153,8 +156,9 @@ local _M = {
 }
 _M.__index = _M
 
-function _M.new(checkcommands)
+function _M.new()
     local self = {
+        reading = false,
         idling = false,
     }
 
@@ -268,12 +272,13 @@ function _M:idle(...)
     end
 
     self.idling = true
-    ok, res = send_and_get(self.conn,'idle'..s,'changed')
-    self.idling = false
+    ok, res = send_and_get(self,'idle'..s,'changed')
 
     if not ok then
       return nil, res
     end
+
+    self.idling = false
 
     local ret = {}
     for i,v in ipairs(res) do
@@ -285,17 +290,43 @@ function _M:idle(...)
 end
 
 function _M:noidle()
-    local ok, res
+    local ok, res, data
     ok, res = self:connected()
     if not ok then return nil, res end
     if not self.idling then return nil, { msg = 'not corrently idle' } end
 
     ok, res = self.conn:send('noidle\n')
-
     if not ok then
       return nil, { msg = res }
     end
-    return true
+
+    if not self.reading then
+      self.reading = true
+      data, res = self.conn:receive('*l')
+      self.reading = false
+
+      if res then
+        ok = false
+        res = { msg = res }
+      elseif match(data,'^OK') then
+        ok = true
+      else
+        local errnum, linenum, cmd, msg = match(data,'^ACK %[([^@]+)@([^%]]+)%] %{([^%}]*)%} (.+)$')
+        if errnum then
+            ok = false
+            res = {
+                errnum = tonumber(errnum),
+                linenum = tonumber(linenum) + 1,
+                cmd = cmd,
+                msg = msg
+            }
+        end
+      end
+    else
+      ok = true
+    end
+    self.idling = false
+    return ok ,res
 end
 
 -- 0PARM
@@ -305,7 +336,7 @@ for _,v in ipairs({'clearerror','next','previous','stop','clear','ping','kill'})
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v)
+        ok, res = send_and_get(self,v)
 
         if not ok then return nil, res end
         return true
@@ -322,7 +353,7 @@ for _,v in ipairs({'outputs'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'outputid')
+        ok, res = send_and_get(self,v,'outputid')
 
         if not ok then return nil, res end
         return res
@@ -336,7 +367,7 @@ for _,v in ipairs({'decoders'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'plugin')
+        ok, res = send_and_get(self,v,'plugin')
 
         if not ok then return nil, res end
         return res
@@ -350,7 +381,7 @@ for _,v in ipairs({'listplaylists'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'playlist')
+        ok, res = send_and_get(self,v,'playlist')
 
         if not ok then return nil, res end
         return res
@@ -364,7 +395,7 @@ for _,v in ipairs({'listmounts'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'mount')
+        ok, res = send_and_get(self,v,'mount')
 
         if not ok then return nil, res end
         return res
@@ -378,7 +409,7 @@ for _,v in ipairs({'listneighbors'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'neighbor')
+        ok, res = send_and_get(self,v,'neighbor')
 
         if not ok then return nil, res end
         return res
@@ -392,7 +423,7 @@ for _,v in ipairs({'channels','readmessages'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'channel')
+        ok, res = send_and_get(self,v,'channel')
 
         if not ok then return nil, res end
         return res
@@ -406,7 +437,7 @@ for _,v in ipairs({'commands','notcommands'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'command')
+        ok, res = send_and_get(self,v,'command')
 
         if not ok then return nil, res end
         local l = {}
@@ -424,7 +455,7 @@ for _,v in ipairs({'tagtypes'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'tagtype')
+        ok, res = send_and_get(self,v,'tagtype')
 
         if not ok then return nil, res end
         local l = {}
@@ -442,7 +473,7 @@ for _,v in ipairs({'urlhandlers'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v,'handler')
+        ok, res = send_and_get(self,v,'handler')
 
         if not ok then return nil, res end
         local l = {}
@@ -461,7 +492,7 @@ for _,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status'
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn,v)
+        ok, res = send_and_get(self,v)
 
         if not ok then return nil, res end
         return res
@@ -480,7 +511,7 @@ for _,v in ipairs({'play','playid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -498,7 +529,7 @@ for _,v in ipairs({'crossfade','disableoutput','enableoutput','toggleoutput'}) d
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. state)
+        ok, res = send_and_get(self, v .. ' ' .. state)
         if not ok then return nil, res end
         return state
     end
@@ -516,7 +547,7 @@ for _,v in ipairs({'mixrampdelay'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. state)
+        ok, res = send_and_get(self, v .. ' ' .. state)
         if not ok then return nil, res end
         return state
     end
@@ -533,7 +564,7 @@ for _,v in ipairs({'playlistadd','rename','sendmessage'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' "' .. name .. '" "' .. uri .. '"')
+        ok, res = send_and_get(self, v .. ' "' .. name .. '" "' .. uri .. '"')
         if not ok then return nil, res end
         return ok
     end
@@ -550,7 +581,7 @@ for _,v in ipairs({'mount'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' "' .. path .. '" "' .. uri .. '"')
+        ok, res = send_and_get(self, v .. ' "' .. path .. '" "' .. uri .. '"')
         if not ok then return nil, res end
         return ok
     end
@@ -567,7 +598,7 @@ for _,v in ipairs({'add','playlistclear','rm','save','password','unmount','subsc
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' "' .. state .. '"')
+        ok, res = send_and_get(self, v .. ' "' .. state .. '"')
         if not ok then return nil, res end
         return ok
     end
@@ -583,7 +614,7 @@ for _,v in ipairs({'listplaylist','listplaylistinfo','readcomments'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' "' .. name .. '"', 'file')
+        ok, res = send_and_get(self, v .. ' "' .. name .. '"', 'file')
         if not ok then return nil, res end
         return res
     end
@@ -598,15 +629,15 @@ for _,v in ipairs({'listfiles','listall','listallinfo','lsinfo','update','rescan
 
         if uri then
             if v == 'rescan' or v == 'update' then
-              ok, res = send_and_get(self.conn, v .. ' "' .. uri .. '"')
+              ok, res = send_and_get(self, v .. ' "' .. uri .. '"')
             else
-              ok, res = send_and_get(self.conn, v .. ' "' .. uri .. '"', 'file','directory','playlist')
+              ok, res = send_and_get(self, v .. ' "' .. uri .. '"', 'file','directory','playlist')
             end
         else
             if v == 'rescan' or v == 'update' then
-                ok, res = send_and_get(self.conn, v)
+                ok, res = send_and_get(self, v)
             else
-                ok, res = send_and_get(self.conn, v, 'file','directory')
+                ok, res = send_and_get(self, v, 'file','directory')
             end
         end
         if not ok then return nil, res end
@@ -631,7 +662,7 @@ for _,v in ipairs({'addid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -650,7 +681,7 @@ for _,v in ipairs({'seek','seekid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. parm1 .. ' ' .. parm2)
+        ok, res = send_and_get(self, v .. ' ' .. parm1 .. ' ' .. parm2)
         if not ok then return nil, res end
         return ok
     end
@@ -668,7 +699,7 @@ for _,v in ipairs({'seekcur'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. state)
+        ok, res = send_and_get(self, v .. ' ' .. state)
         if not ok then return nil, res end
         return ok
     end
@@ -686,7 +717,7 @@ for _,v in ipairs({'mixrampdb'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. state)
+        ok, res = send_and_get(self, v .. ' ' .. state)
         if not ok then return nil, res end
         return state
     end
@@ -704,7 +735,7 @@ for _,v in ipairs({'consume','random','repeat','random','single','pause'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. state)
+        ok, res = send_and_get(self, v .. ' ' .. state)
         if not ok then return nil, res end
         return state
     end
@@ -725,7 +756,7 @@ for _,v in ipairs({'setvol'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. state)
+        ok, res = send_and_get(self, v .. ' ' .. state)
         if not ok then return nil, res end
         return state
     end
@@ -757,7 +788,7 @@ for _,v in ipairs({'rangeid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -794,7 +825,7 @@ for _,v in ipairs({'plchanges','plchangesposid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd, splitparm)
+        ok, res = send_and_get(self, cmd, splitparm)
         if not ok then return nil, res end
         return res
     end
@@ -820,7 +851,7 @@ for _,v in ipairs({'prio'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -850,7 +881,7 @@ for _,v in ipairs({'find','search'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd, 'file')
+        ok, res = send_and_get(self, cmd, 'file')
         if not ok then return nil, res end
         return res
     end
@@ -881,9 +912,9 @@ for _,v in ipairs({'count'}) do
         if not ok then return nil, res end
 
         if group ~= false then
-            ok, res = send_and_get(self.conn, cmd, group)
+            ok, res = send_and_get(self, cmd, group)
         else
-            ok, res = send_and_get(self.conn, cmd)
+            ok, res = send_and_get(self, cmd)
         end
         if not ok then return nil, res end
         return res
@@ -907,7 +938,7 @@ for _,v in ipairs({'findadd','searchadd'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -934,7 +965,7 @@ for _,v in ipairs({'list'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd, t:lower())
+        ok, res = send_and_get(self, cmd, t:lower())
         if not ok then return nil, res end
         return res
     end
@@ -961,7 +992,7 @@ for _,v in ipairs({'searchaddpl'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd, t:lower())
+        ok, res = send_and_get(self, cmd, t:lower())
         if not ok then return nil, res end
         return res
     end
@@ -987,7 +1018,7 @@ for _,v in ipairs({'prioid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -1006,7 +1037,7 @@ for _,v in ipairs({'playlistmove'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' "' .. name .. '" ' .. from .. ' ' .. to)
+        ok, res = send_and_get(self, v .. ' "' .. name .. '" ' .. from .. ' ' .. to)
         if not ok then return nil, res end
         return ok
     end
@@ -1034,7 +1065,7 @@ for _,v in ipairs({'load'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -1062,7 +1093,7 @@ function _M:sticker(...)
     ok, res = self:ready_to_send()
     if not ok then return nil, res end
 
-    ok, res = send_and_get(self.conn, cmd)
+    ok, res = send_and_get(self, cmd)
     if not ok then return nil, res end
     return res
 end
@@ -1082,7 +1113,7 @@ for _,v in ipairs({'addtagid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. id .. ' ' .. tag .. ' ' .. val)
+        ok, res = send_and_get(self, v .. ' ' .. id .. ' ' .. tag .. ' ' .. val)
         if not ok then return nil, res end
         return ok
     end
@@ -1116,7 +1147,7 @@ for _,v in ipairs({'move'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -1135,7 +1166,7 @@ function _M:moveid(from, to)
     ok, res = self:ready_to_send()
     if not ok then return nil, res end
 
-    ok, res = send_and_get(self.conn, 'moveid ' .. from .. ' ' .. to)
+    ok, res = send_and_get(self, 'moveid ' .. from .. ' ' .. to)
     if not ok then return nil, res end
     return ok
 end
@@ -1166,7 +1197,7 @@ function _M:_delete(start,stop)
     ok, res = self:ready_to_send()
     if not ok then return nil, res end
 
-    ok, res = send_and_get(self.conn, cmd)
+    ok, res = send_and_get(self, cmd)
     if not ok then return nil, res end
     return ok
 end
@@ -1195,7 +1226,7 @@ for _,v in ipairs({'cleartagid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -1214,7 +1245,7 @@ for _,v in ipairs({'swap','swapid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' ' .. pos1 .. ' ' .. pos2)
+        ok, res = send_and_get(self, v .. ' ' .. pos1 .. ' ' .. pos2)
         if not ok then return nil, res end
         return ok
     end
@@ -1236,7 +1267,7 @@ function _M:playlistid(id)
     ok, res = self:ready_to_send()
     if not ok then return nil, res end
 
-    ok, res = send_and_get(self.conn, cmd, 'file')
+    ok, res = send_and_get(self, cmd, 'file')
     if not ok then return nil, res end
     if id then
         return res[1]
@@ -1260,7 +1291,7 @@ for _,v in ipairs({'playlistdelete'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' "' .. name .. '" ' .. pos)
+        ok, res = send_and_get(self, v .. ' "' .. name .. '" ' .. pos)
         if not ok then return nil, res end
         return ok
     end
@@ -1278,7 +1309,7 @@ for _,v in ipairs({'playlistfind','playlistsearch'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, v .. ' "' .. tag .. '" "' .. needle .. '"', 'file')
+        ok, res = send_and_get(self, v .. ' "' .. tag .. '" "' .. needle .. '"', 'file')
         if not ok then return nil, res end
         return res
     end
@@ -1301,7 +1332,7 @@ for _,v in ipairs({'shuffle'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd)
+        ok, res = send_and_get(self, cmd)
         if not ok then return nil, res end
         return ok
     end
@@ -1325,7 +1356,7 @@ for _,v in ipairs({'playlistinfo'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self.conn, cmd, 'file')
+        ok, res = send_and_get(self, cmd, 'file')
         if not ok then return nil, res end
         return res
     end
@@ -1344,7 +1375,7 @@ function _M:replay_gain_mode(mode)
     ok, res = self:ready_to_send()
     if not ok then return nil, res end
 
-    ok, res = send_and_get(self.conn, 'replay_gain_mode ' .. mode)
+    ok, res = send_and_get(self, 'replay_gain_mode ' .. mode)
     if not ok then return nil, res end
     return mode
 end

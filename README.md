@@ -13,10 +13,18 @@ The URL should be in one of two formats:
 
 * `tcp://host:port`
 * `unix:/path/to/socket`
+* `host:port`
+* `host` (implied port 6600)
+* `tcp://host` (implied port 6600)
+* `path/to/socket` (does not have to be absolute)
 
 ### `ok, err = client:close()`
 
 ## Changelog
+
+### Version 2.0.1
+
+Fixes timed out operations.
 
 ### Version 2.0.0
 
