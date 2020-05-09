@@ -16,6 +16,36 @@ The URL should be in one of two formats:
 
 ### `ok, err = client:close()`
 
+## Changelog
+
+### Version 2.0.0
+
+#### Breaking Changes
+
+In previous versions, calling `idle` would return a string, with
+a special string ("interrupted") in the case of the idle being
+canceled with `noidle`. In MPD, a call to `idle` can return multiple
+events.
+
+`idle` now returns an array of events, with an empty array used to
+represent `idle` being canceled.
+
+#### Non-Breaking Changes
+
+Previous versions required the URL to match the formats:
+
+* `tcp://host:port`
+* `unix:/path/to/socket`
+
+The URL can additionally use the formats:
+
+* `host:port`
+* `host` (implied port 6600)
+* `tcp://host` (implied port 6600)
+* `path/to/socket` (does not have to be absolute)
+
+I still recommend the `tcp://` or `unix:` prefixes to be explicit
+
 ## Implemented Protocol Functions
 
 For details on each of these functions, see the MPD proto docs:
@@ -32,10 +62,13 @@ case of an error, returns `nil` and an object
 describing the error.
 
 
-### `event, err = client:idle(...)`
+### `events, err = client:idle(...)`
 
 Waits until MPD emits a noteworthy change. You can specify a list of
-events you're interested in, or leave blank for all events.
+events you're interested in, or leave blank for all events. Returns
+an array of events.
+
+May return zero events, in the case of canceling an idle via `client:noidle()`
 
 The events:
 

@@ -1,16 +1,28 @@
 -- luacheck: globals ngx
 local tcp
 local unix
+
+-- base library
+-- all compiled by LuaJIT
 local type = type
-local huge = math.huge
-local tonumber = tonumber
-local match = string.match
-local sub = string.sub
-local find = string.find
-local setmetatable = setmetatable
-local remove = table.remove
 local ipairs = ipairs
+local tonumber = tonumber
+local setmetatable = setmetatable
+
+-- string library
+local match = string.match -- not compiled by LuaJIT
+local sub = string.sub
+local gsub = string.gsub -- not compiled by LuaJIT
+local find = string.find -- only fixed searches compiled
 local len = string.len
+-- todo: replace string ops with things compiled by LuaJIT
+
+-- table library
+local remove = table.remove -- yes in 2.1, only when popping in 2.0
+local insert = table.insert -- compiled when pushing (true in this library)
+
+-- math library
+local huge = math.huge
 
 if ngx then
     tcp = ngx.socket.tcp
@@ -137,7 +149,7 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '1.0.4',
+    _VERSION = '2.0.0',
 }
 _M.__index = _M
 
@@ -153,14 +165,23 @@ end
 function _M:connect(url)
     local proto = match(url,'^(%a+):')
 
-    if proto == 'tcp' then
-        local host, port = match(url,'tcp://([^:]+):(%d+)')
-
+    if proto then
+        self.proto = proto
+    elseif match(url,'^[A-Za-z0-9.-]+:?') then
         self.proto = 'tcp'
+    else
+        self.proto = 'unix'
+    end
+
+    if self.proto == 'tcp' then
+        url = gsub(url,'^tcp://','')
+        local host = match(url,'^([^:]+)')
+        url = gsub(url,'^[^:]+','')
+        local port = match(url,'^:?(%d+)')
         self.host = host
-        self.port = port
-    elseif proto == 'unix' then
-        local path = match(url,'unix:(.+)')
+        self.port = tonumber(port) or 6600
+    else
+        local path = gsub(url,'^unix:','')
 
         self.proto = 'unix'
         self.path = path
@@ -175,37 +196,29 @@ function _M:connected()
     end
     local data,_,err,p
 
-    if self.proto then
-        if self.proto == 'tcp' then
-            self.conn, err = tcp()
-            if err then return nil, { msg = err } end
+    if self.proto == 'tcp' then
+        self.conn, err = tcp()
+        if err then return nil, { msg = err } end
 
-            _,err = self.conn:connect(self.host,self.port)
-            if err then
-                self.conn = nil
-                return nil, { msg = err }
-            end
-        elseif self.proto == 'unix' then
-            self.conn, err = unix()
-            if err then return nil, { msg = err } end
-
-            if ngx then
-                _,err = self.conn:connect('unix:'..self.path)
-            else
-                _,err = self.conn:connect(self.path)
-            end
-
-            if err then
-                self.conn = nil
-                return nil, { msg = err }
-            end
-        elseif self.proto then
-            return nil, { msg = self.proto .. ': unsupported protocol' }
-        else
-            return nil, { msg = 'protocol not specified' }
+        _,err = self.conn:connect(self.host,self.port)
+        if err then
+            self.conn = nil
+            return nil, { msg = err }
         end
     else
-        return nil,'not connected'
+        self.conn, err = unix()
+        if err then return nil, { msg = err } end
+
+        if ngx then
+            _,err = self.conn:connect('unix:'..self.path)
+        else
+            _,err = self.conn:connect(self.path)
+        end
+
+        if err then
+            self.conn = nil
+            return nil, { msg = err }
+        end
     end
 
     self.conn:settimeout(90)
@@ -225,6 +238,7 @@ function _M:connected()
     if match(data,'^OK MPD') then
         return true
     end
+    self.conn:close()
     self.conn = nil
 
     return nil, { msg = 'Connected to something but it\'s not MPD' }
@@ -254,34 +268,34 @@ function _M:idle(...)
     end
 
     self.idling = true
-    ok, res = send_and_get(self.conn,'idle'..s)
-    while self.idling do
-      if not ok then
-        if res.msg == 'timeout' then
-          ok, res = get_lines(self.conn)
-        else
-          self.idling = false
-        end
-      else
-        self.idling = false
-      end
+    ok, res = send_and_get(self.conn,'idle'..s,'changed')
+    self.idling = false
+
+    if not ok then
+      return nil, res
     end
-      
-    if not ok then return nil, res end
-    if res.changed then
-        return res.changed
+
+    local ret = {}
+    for i,v in ipairs(res) do
+      insert(ret,v.changed)
     end
-    return 'interrupted'
+
+    return ret
+
 end
 
 function _M:noidle()
     local ok, res
     ok, res = self:connected()
     if not ok then return nil, res end
+    if not self.idling then return nil, { msg = 'not corrently idle' } end
 
-    ok, res = send_and_get(self.conn,'noidle')
-    self.idling = false
-    return ok, res
+    ok, res = self.conn:send('noidle\n')
+
+    if not ok then
+      return nil, { msg = res }
+    end
+    return true
 end
 
 -- 0PARM
