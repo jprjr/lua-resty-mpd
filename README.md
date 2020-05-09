@@ -22,6 +22,8 @@ The URL should be in one of two formats:
 
 #### Breaking Changes
 
+**`idle` change**
+
 In previous versions, calling `idle` would return a string, with
 a special string ("interrupted") in the case of the idle being
 canceled with `noidle`. In MPD, a call to `idle` can return multiple
@@ -29,6 +31,13 @@ events.
 
 `idle` now returns an array of events, with an empty array used to
 represent `idle` being canceled.
+
+**`commands` and `notcommands` change**
+
+Previous versions returned a table with each command being a key set
+to `true`.
+
+`commands` and `notcommands` now returns an array of commands.
 
 #### Non-Breaking Changes
 

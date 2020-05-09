@@ -18,7 +18,7 @@ local len = string.len
 -- todo: replace string ops with things compiled by LuaJIT
 
 -- table library
-local remove = table.remove -- yes in 2.1, only when popping in 2.0
+local remove = table.remove -- compiled in 2.1, only when popping in 2.0
 local insert = table.insert -- compiled when pushing (true in this library)
 
 -- math library
@@ -153,7 +153,7 @@ local _M = {
 }
 _M.__index = _M
 
-_M.new = function()
+function _M.new(checkcommands)
     local self = {
         idling = false,
     }
@@ -411,7 +411,7 @@ for _,v in ipairs({'commands','notcommands'}) do
         if not ok then return nil, res end
         local l = {}
         for i=1,#res,1 do
-            l[res[i].command] = true
+            insert(l,res[i].command)
         end
         return l
     end
