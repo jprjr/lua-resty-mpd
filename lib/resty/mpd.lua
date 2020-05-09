@@ -152,7 +152,7 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '2.0.0',
+    _VERSION = '2.0.1',
 }
 _M.__index = _M
 
