@@ -22,6 +22,12 @@ The URL should be in one of two formats:
 
 ## Changelog
 
+### Version 2.0.2
+
+Fixes potential race condition in `noidle`.
+
+Uses correct socket timeout scale (seconds with luasocket, milliseconds in nginx).
+
 ### Version 2.0.1
 
 Fixes timed out operations.
