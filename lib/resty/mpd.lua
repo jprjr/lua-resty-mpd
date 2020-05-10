@@ -225,7 +225,7 @@ function _M:connected()
         end
     end
 
-    self.conn:settimeout(90)
+    self.conn:settimeout(10 * (ngx and 1000 or 1))
 
     data, err, p = self.conn:receive('*l')
     if err then
