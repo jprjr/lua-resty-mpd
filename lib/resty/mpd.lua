@@ -53,12 +53,14 @@ local function get_lines(self, ...)
     local i = 0
     local split
     local splits = {...}
+
     if #splits > 0 then
         split = {}
         for _,v in ipairs({...}) do
             split[v] = true
         end
     end
+
     while(true) do
         self.reading = true
         local data, err = self.conn:receive('*l')
@@ -281,7 +283,7 @@ function _M:idle(...)
     self.idling = false
 
     local ret = {}
-    for i,v in ipairs(res) do
+    for _,v in ipairs(res) do
       insert(ret,v.changed)
     end
 
@@ -290,17 +292,18 @@ function _M:idle(...)
 end
 
 function _M:noidle()
-    local ok, res, data
+    local ok, res, data, reading
     ok, res = self:connected()
     if not ok then return nil, res end
     if not self.idling then return nil, { msg = 'not corrently idle' } end
+    reading = self.reading
 
     ok, res = self.conn:send('noidle\n')
     if not ok then
       return nil, { msg = res }
     end
 
-    if not self.reading then
+    if not reading then
       self.reading = true
       data, res = self.conn:receive('*l')
       self.reading = false
