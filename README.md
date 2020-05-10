@@ -3,7 +3,7 @@
 ## Example Usage
 
 ```lua
-local mpd = require'lib.resty.mpd'
+local mpd = require'resty.mpd'
 local client = mpd.new()
 client:connect('tcp://127.0.0.1:6600')
 
