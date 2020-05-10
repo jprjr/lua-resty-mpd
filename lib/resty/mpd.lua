@@ -62,8 +62,11 @@ local function get_lines(self, ...)
     end
 
     while(true) do
+        local data, err
         self.reading = true
-        local data, err = self.conn:receive('*l')
+        repeat
+            data, err = self.conn:receive('*l')
+        until data or (err and ( (err ~= 'timeout') or (err == 'timeout' and not self.timeout_continue)))
         self.reading = false
 
         if err then
@@ -154,15 +157,20 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '2.0.2',
+    _VERSION = '2.1.0',
 }
 _M.__index = _M
 
-function _M.new()
+function _M.new(opts)
     local self = {
         reading = false,
         idling = false,
+        timeout_continue = false,
     }
+    opts = type(opts) == 'table' and opts or {
+        timeout_continue = false
+    }
+    self.timeout_continue = opts.timeout_continue
 
     setmetatable(self,_M)
     return self

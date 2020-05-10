@@ -1,9 +1,50 @@
+# lua-resty-mpd
+
+## Example Usage
+
+```lua
+local mpd = require'lib.resty.mpd'
+local client = mpd.new()
+client:connect('tcp://127.0.0.1:6600')
+
+-- loop until we've read 5 events
+local events = 5
+
+while events > 0 do
+  local res, err = client:idle()
+  if err then
+      if err == 'timeout' then
+          -- cancel current idle for next loop
+          local noidle_ok, noidle_err = client:noidle()
+          if noidle_err then
+              print('Error: ' .. noidle_err)
+              os.exit(1)
+          end
+      else
+          print('Error: ' .. err)
+          os.exit(1)
+      end
+  else
+      for _,event in pairs(res) do
+          print('Event: ' .. event)
+          events = events - 1
+          -- do something based on the event
+       end
+  end
+end
+```
 
 ## Instantiating a client
 
-### `client = mpd.new()`
+### `client = mpd.new(opts)`
 
-Returns a new MPD client object
+Returns a new MPD client object. Opts is an (optional) table
+of parameters for the client. Accepted parameters:
+
+* `timeout_continue` - boolean. If true, reading operations will
+continue attempting to read even during a timeout. If you have
+a client that loops around calls to `idle` you may want to
+consider enabling this.
 
 ### `ok, err = client:connect(url)`
 
@@ -21,6 +62,10 @@ The URL should be in one of two formats:
 ### `ok, err = client:close()`
 
 ## Changelog
+
+### Version 2.1.0
+
+New feature: `new` takes an optional table, see documentation.
 
 ### Version 2.0.2
 
