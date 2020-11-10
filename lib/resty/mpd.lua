@@ -11,10 +11,10 @@ local setmetatable = setmetatable
 
 -- string library
 local match = string.match -- not compiled by LuaJIT
-local sub = string.sub
+local sub = string.sub -- compiled by LuaJIT
 local gsub = string.gsub -- not compiled by LuaJIT
 local find = string.find -- only fixed searches compiled
-local len = string.len
+local len = string.len -- compiled by LuaJIT
 -- todo: replace string ops with things compiled by LuaJIT
 
 -- table library
@@ -22,7 +22,7 @@ local remove = table.remove -- compiled in 2.1, only when popping in 2.0
 local insert = table.insert -- compiled when pushing (true in this library)
 
 -- math library
-local huge = math.huge
+local huge = math.huge -- constant
 
 if ngx then
     tcp = ngx.socket.tcp
@@ -129,6 +129,11 @@ local function send_and_get(self, cmd, ...)
     return true, res
 end
 
+local function texty(val)
+    -- escapes backslashes and quotes in URIs and such, adds quotes
+    return '"' .. gsub(val,'([\\"])','\\%1') .. '"'
+end
+
 local function slidey(state, min, max)
     local st
 
@@ -204,58 +209,66 @@ function _M:connect(url)
     return self:connected()
 end
 
-function _M:connected()
-    if self.conn then
-        return true
-    end
-    local data,_,err,p
-
-    if self.proto == 'tcp' then
-        self.conn, err = tcp()
-        if err then return nil, { msg = err } end
-
-        _,err = self.conn:connect(self.host,self.port)
-        if err then
-            self.conn = nil
-            return nil, { msg = err }
-        end
-    else
-        self.conn, err = unix()
-        if err then return nil, { msg = err } end
-
-        if ngx then
-            _,err = self.conn:connect('unix:'..self.path)
-        else
-            _,err = self.conn:connect(self.path)
-        end
-
-        if err then
-            self.conn = nil
-            return nil, { msg = err }
-        end
-    end
-
-    self.conn:settimeout(10 * (ngx and 1000 or 1))
-
-    data, err, p = self.conn:receive('*l')
+function _M:begin(conn)
+    local data, err, p
+    data, err, p = conn:receive('*l')
     if err then
-        self.conn = nil
         return nil, { msg = err }
     end
-
-    self.conn:settimeout(nil)
 
     if p then
         data = data .. p
     end
 
     if match(data,'^OK MPD') then
+        self.conn = conn
         return true
     end
-    self.conn:close()
-    self.conn = nil
+    conn:close()
 
     return nil, { msg = 'Connected to something but it\'s not MPD' }
+end
+
+function _M:connected()
+    local conn
+    if self.conn then
+        return true
+    end
+    local _,err
+
+    if self.proto == 'tcp' then
+        conn, err = tcp()
+        if err then return nil, { msg = err } end
+
+        _,err = conn:connect(self.host,self.port)
+        if err then
+            return nil, { msg = err }
+        end
+    else
+        conn, err = unix()
+        if err then return nil, { msg = err } end
+
+        if ngx then
+            _,err = conn:connect('unix:'..self.path)
+        else
+            _,err = conn:connect(self.path)
+        end
+
+        if err then
+            return nil, { msg = err }
+        end
+    end
+
+    conn:settimeout(10 * (ngx and 1000 or 1))
+
+    _, err = self:begin(conn)
+    if err then
+      return err
+    end
+
+    conn:settimeout(nil)
+
+    return true
 end
 
 function _M:ready_to_send()
@@ -510,6 +523,7 @@ for _,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status'
     end
 end
 
+-- 1PARM >0 optional
 for _,v in ipairs({'play','playid'}) do
     _M[v] = function(self,state)
         local cmd = v
@@ -575,7 +589,7 @@ for _,v in ipairs({'playlistadd','rename','sendmessage'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' "' .. name .. '" "' .. uri .. '"')
+        ok, res = send_and_get(self, v .. ' ' .. texty(name) .. ' ' .. texty(uri))
         if not ok then return nil, res end
         return ok
     end
@@ -592,7 +606,7 @@ for _,v in ipairs({'mount'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' "' .. path .. '" "' .. uri .. '"')
+        ok, res = send_and_get(self, v .. ' ' .. texty(path) .. ' ' .. texty(uri))
         if not ok then return nil, res end
         return ok
     end
@@ -609,7 +623,7 @@ for _,v in ipairs({'add','playlistclear','rm','save','password','unmount','subsc
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' "' .. state .. '"')
+        ok, res = send_and_get(self, v .. ' ' .. texty(state))
         if not ok then return nil, res end
         return ok
     end
@@ -625,7 +639,7 @@ for _,v in ipairs({'listplaylist','listplaylistinfo','readcomments'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' "' .. name .. '"', 'file')
+        ok, res = send_and_get(self, v .. ' ' .. texty(name), 'file')
         if not ok then return nil, res end
         return res
     end
@@ -640,9 +654,9 @@ for _,v in ipairs({'listfiles','listall','listallinfo','lsinfo','update','rescan
 
         if uri then
             if v == 'rescan' or v == 'update' then
-              ok, res = send_and_get(self, v .. ' "' .. uri .. '"')
+              ok, res = send_and_get(self, v .. ' ' .. texty(uri))
             else
-              ok, res = send_and_get(self, v .. ' "' .. uri .. '"', 'file','directory','playlist')
+              ok, res = send_and_get(self, v .. ' ' .. texty(uri), 'file','directory','playlist')
             end
         else
             if v == 'rescan' or v == 'update' then
@@ -664,7 +678,7 @@ for _,v in ipairs({'addid'}) do
             return nil, { msg = 'parameter URI required' }
         end
 
-        local cmd = v .. ' "' .. param1 .. '"'
+        local cmd = v .. ' ' .. texty(param1)
         if param2 then
             cmd = cmd .. ' ' .. slidey(param2,0)
         end
@@ -884,7 +898,7 @@ for _,v in ipairs({'find','search'}) do
             if j+1 == #rs and a and b then
                 cmd = cmd .. ' window ' .. a .. ':' .. b
             else
-                cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
+                cmd = cmd .. ' ' .. texty(rs[j]) .. ' ' .. texty(rs[j+1])
             end
         end
 
@@ -912,9 +926,9 @@ for _,v in ipairs({'count'}) do
         for j=1,#rs,2 do
             if not rs[j+1] then
                 group = rs[j]
-                cmd = cmd .. ' group "' .. rs[j] .. '"'
+                cmd = cmd .. ' group ' .. texty(rs[j])
             else
-                cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
+                cmd = cmd .. ' ' .. texty(rs[j]) .. ' ' .. texty(rs[j+1])
             end
         end
 
@@ -942,7 +956,7 @@ for _,v in ipairs({'findadd','searchadd'}) do
         local cmd = v
 
         for j=1,#rs,2 do
-            cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
+            cmd = cmd .. ' ' .. texty(rs[j]) .. ' ' .. texty(rs[j+1])
         end
 
         local ok, res
@@ -962,14 +976,12 @@ for _,v in ipairs({'list'}) do
             return nil, { msg = 'missing parameters' }
         end
 
-        if find(t, ' ') then
-            t = '"' .. t .. '"'
-        end
+        t = texty(t)
 
         local cmd = v .. ' ' .. t
 
         for j=1,#rs,2 do
-            cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
+            cmd = cmd .. ' ' .. texty(rs[j]) .. ' ' .. texty(rs[j+1])
         end
 
         local ok, res
@@ -989,14 +1001,12 @@ for _,v in ipairs({'searchaddpl'}) do
             return nil, { msg = 'missing parameters' }
         end
 
-        if find(t, ' ') then
-            t = '"' .. t .. '"'
-        end
+        t = texty(t)
 
         local cmd = v .. ' ' .. t
 
         for j=1,#rs,2 do
-            cmd = cmd .. ' "' .. rs[j] .. '" "' .. rs[j+1] .. '"'
+            cmd = cmd .. ' ' .. texty(rs[j]) .. ' ' .. texty(rs[j+1])
         end
 
         local ok, res
@@ -1048,7 +1058,7 @@ for _,v in ipairs({'playlistmove'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' "' .. name .. '" ' .. from .. ' ' .. to)
+        ok, res = send_and_get(self, v .. ' ' .. texty(name) .. ' ' .. from .. ' ' .. to)
         if not ok then return nil, res end
         return ok
     end
@@ -1061,7 +1071,7 @@ for _,v in ipairs({'load'}) do
         if not name then
             return nil, { msg = 'missing parameters' }
         end
-        local cmd = v .. ' ' .. name
+        local cmd = v .. ' ' .. texty(name)
 
         if start then
             start = slidey(start,0)
@@ -1097,7 +1107,7 @@ function _M:sticker(...)
         if v == '>' or v == '<' or v == '=' then
             cmd = cmd .. ' ' .. v
         else
-            cmd = cmd .. ' "' .. v ..'"'
+            cmd = cmd .. ' ' .. texty(v)
         end
     end
     local ok, res
@@ -1124,7 +1134,7 @@ for _,v in ipairs({'addtagid'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' ' .. id .. ' ' .. tag .. ' ' .. val)
+        ok, res = send_and_get(self, v .. ' ' .. id .. ' ' .. texty(tag) .. ' ' .. texty(val))
         if not ok then return nil, res end
         return ok
     end
@@ -1230,7 +1240,7 @@ for _,v in ipairs({'cleartagid'}) do
 
         local cmd = v .. ' ' .. id
         if tag then
-            cmd = cmd .. ' "' .. tag .. '"'
+            cmd = cmd .. ' ' .. texty(tag)
         end
 
         local ok, res
@@ -1302,7 +1312,7 @@ for _,v in ipairs({'playlistdelete'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' "' .. name .. '" ' .. pos)
+        ok, res = send_and_get(self, v .. ' ' .. texty(name) .. ' ' .. pos)
         if not ok then return nil, res end
         return ok
     end
@@ -1320,7 +1330,7 @@ for _,v in ipairs({'playlistfind','playlistsearch'}) do
         ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
-        ok, res = send_and_get(self, v .. ' "' .. tag .. '" "' .. needle .. '"', 'file')
+        ok, res = send_and_get(self, v .. ' ' ..texty(tag) .. ' ' .. texty(needle), 'file')
         if not ok then return nil, res end
         return res
     end
