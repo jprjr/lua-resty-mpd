@@ -83,6 +83,21 @@ The URL should be in one of two formats:
 
 ## Changelog
 
+### Version 3.0.0
+
+Major version bump.
+
+Version 3.0.0 tries to detect if a command is sent
+while waiting on an `IDLE` command to finish,
+and automatically calls `noidle`, it does this through
+nginx semaphores and cqueues condition variables.
+
+This new behavior is not supported on LuaSocket, you'll
+need to call `noidle` on your own.
+
+Also handles binary responses and *should* handle all
+MPD protocol functions as of MPD 0.22.0.
+
 ### Version 2.2.0
 
 New feature, now supports cqueues socket library.

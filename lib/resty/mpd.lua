@@ -1,7 +1,7 @@
 -- luacheck: globals ngx
 local tcp
 local unix
-local socket_lib_name
+local socket_lib
 
 -- base library
 -- all compiled by LuaJIT
@@ -29,9 +29,15 @@ local floor = math.floor
 
 -- wrapper for a few different socket modules
 local mpd_socket = {}
-mpd_socket.nginx = {}
-mpd_socket.cqueues = {}
-mpd_socket.socket = {}
+mpd_socket.nginx = {
+  _name = 'ngx'
+}
+mpd_socket.cqueues = {
+  _name = 'cqueues'
+}
+mpd_socket.socket = {
+  _name = 'socket'
+}
 mpd_socket.nginx.tcp = {}
 mpd_socket.nginx.unix = {}
 mpd_socket.cqueues.tcp = {}
@@ -52,16 +58,115 @@ setmetatable(mpd_socket.cqueues.unix, { __index = mpd_socket.cqueues })
 setmetatable(mpd_socket.socket.tcp,   { __index = mpd_socket.socket })
 setmetatable(mpd_socket.socket.unix,  { __index = mpd_socket.socket })
 
-mpd_socket.receive = function(self,amount)
-  return self._socket:receive(amount)
+mpd_socket.condvar = {}
+
+mpd_socket.condvar.acquire = function(self)
+  return true
 end
 
-mpd_socket.send = function(self,amount)
-  return self._socket:send(amount)
+mpd_socket.condvar.release = function(self)
+  return true
+end
+
+mpd_socket.condvar.new = function()
+  local t = {
+    _active = 0
+  }
+  setmetatable(t,{__index = mpd_socket.condvar})
+  return t
+end
+
+mpd_socket.condvar.incr = function(self)
+  self._active = self._active + 1
+  return self._active
+end
+
+mpd_socket.condvar.decr = function(self)
+  self._active = self._active - 1
+  return self._active
+end
+
+mpd_socket.condvar.val = function(self)
+  return self._active
+end
+
+mpd_socket.condvar.wait = function(self)
+  return true
+end
+
+mpd_socket.condvar.post = function(self)
+  return true
+end
+
+mpd_socket.receive = function(self,amount)
+  local data, err = self._socket:receive(amount)
+  return data, err
+end
+
+mpd_socket.send = function(self,data)
+  return self._socket:send(data)
 end
 
 mpd_socket.close = function(self)
   return self._socket:close()
+end
+
+mpd_socket.nginx.condvar = {}
+setmetatable(mpd_socket.nginx.condvar,  { __index = mpd_socket.condvar })
+
+mpd_socket.cqueues.condvar = {}
+setmetatable(mpd_socket.cqueues.condvar,  { __index = mpd_socket.condvar })
+
+mpd_socket.nginx.condvar.new = function()
+  local t = {
+    _condvar = require'ngx.semaphore'.new(),
+    _active = 0,
+  }
+  setmetatable(t,{__index = mpd_socket.nginx.condvar})
+  return t
+end
+
+mpd_socket.nginx.condvar.wait = function(self)
+    return self._condvar:wait(10)
+end
+
+mpd_socket.nginx.condvar.post = function(self,n)
+  local count = self._condvar:count()
+  if count < 0 and n == nil then
+    n = count * -1
+  end
+  return self._condvar:post(n)
+end
+
+mpd_socket.cqueues.condvar.new = function()
+  local condition = require'cqueues.condition'
+  local t = {
+    _condvar = condition.new(),
+    _active = 0,
+  }
+  setmetatable(t,{__index = mpd_socket.cqueues.condvar})
+  return t
+end
+
+mpd_socket.cqueues.condvar.wait = function(self)
+    return self._condvar:wait()
+end
+
+mpd_socket.cqueues.condvar.post = function(self,n)
+  return self._condvar:signal(n)
+end
+
+mpd_socket.cqueues.condvar.acquire = function(self)
+  local active = self:incr()
+  while active > 1 do
+    self:wait()
+    active = active - 1
+  end
+end
+
+mpd_socket.cqueues.condvar.release = function(self)
+  self:decr()
+  self:post()
 end
 
 mpd_socket.nginx.settimeout = function(self,timeout)
@@ -90,7 +195,8 @@ mpd_socket.cqueues.connect = function(self)
 end
 
 mpd_socket.cqueues.receive = function(self,amount)
-  return self._socket:read(amount)
+  local data, err = self._socket:read(amount)
+  return data, err
 end
 
 mpd_socket.cqueues.send = function(self,data)
@@ -115,7 +221,7 @@ mpd_socket.socket.unix.connect = function(self)
 end
 
 local function create_socket_funcs_nginx()
-  return 'ngx', function(host,port)
+  return mpd_socket.nginx, function(host,port)
     local t = {
       _host = host,
       _port = port,
@@ -135,7 +241,7 @@ end
 
 local function create_socket_funcs_cqueues()
   local cqueues_lib = require'cqueues.socket'
-  return 'cqueues', function(host,port)
+  return mpd_socket.cqueues, function(host,port)
     local t = {
       _host = host,
       _port = port,
@@ -161,13 +267,13 @@ local function create_socket_funcs_cqueues()
 end
 
 local function create_socket_funcs_socket()
-  local socket_lib = require'socket'
+  local luasocket_lib = require'socket'
   local unix_socket_lib = require'socket.unix'
-  return 'socket', function(host,port)
+  return mpd_socket.socket, function(host,port)
     local t = {
       _host = host,
       _port = port,
-      _socket = socket_lib.tcp(),
+      _socket = luasocket_lib.tcp(),
     }
     setmetatable(t,{__index = mpd_socket.socket.tcp})
     return t
@@ -212,7 +318,7 @@ local function use_socket_lib(lib)
   return error('unknown socket library: ' .. lib)
 end
 
-socket_lib_name, tcp, unix = create_socket_funcs()
+socket_lib, tcp, unix = create_socket_funcs()
 
 local replay_gain_modes = {
     off = true,
@@ -231,6 +337,7 @@ local sticker_cmds = {
 
 local function get_lines(self, ...)
     local ok
+    local binary = 0
     local res = {}
     local i = 0
     local split
@@ -245,50 +352,60 @@ local function get_lines(self, ...)
 
     while(true) do
         local data, err
-        self.reading = true
         repeat
-            data, err = self.conn:receive('*l')
+            data, err = self.conn:receive(binary > 0 and binary or '*l')
         until data or (err and ( (err ~= 'timeout') or (err == 'timeout' and not self.timeout_continue)))
-        self.reading = false
 
         if err then
             return nil, { msg = err }
         end
 
-        if match(data,'^OK') then
-            ok = true
-            break
-        end
-        local errnum, linenum, cmd, msg = match(data,'^ACK %[([^@]+)@([^%]]+)%] %{([^%}]*)%} (.+)$')
-        if errnum then
-            ok = false
-            res = {
-                errnum = tonumber(errnum),
-                linenum = tonumber(linenum) + 1,
-                cmd = cmd,
-                msg = msg
-            }
-            break
-        end
-
-        local col = find(data,':')
-
-        if col then
-            local key, val, t
-            key = sub(data,1,col-1):lower():gsub('^%s+',''):gsub('%s+$','')
-            val = sub(data,col+1):gsub('^%s+',''):gsub('%s+$','')
-            t = tonumber(val)
-            if t then
-                val = t
+        if binary > 0 then
+            res['binary'] = res['binary'] .. data
+            binary = binary - len(data)
+            if binary == 0 then
+              res['binary'] = sub(res['binary'],1,len(res['binary']) - 1)
             end
-            if split then
-                if split[key] == true then
-                    i = i + 1
-                    res[i] = {}
+        else
+            if match(data,'^OK') then
+                ok = true
+                break
+            end
+            local errnum, linenum, cmd, msg = match(data,'^ACK %[([^@]+)@([^%]]+)%] %{([^%}]*)%} (.+)$')
+            if errnum then
+                ok = false
+                res = {
+                    errnum = tonumber(errnum),
+                    linenum = tonumber(linenum) + 1,
+                    cmd = cmd,
+                    msg = msg
+                }
+                break
+            end
+
+            local col = find(data,':')
+
+            if col then
+                local key, val, t
+                key = sub(data,1,col-1):lower():gsub('^%s+',''):gsub('%s+$','')
+                val = sub(data,col+1):gsub('^%s+',''):gsub('%s+$','')
+                t = tonumber(val)
+                if t then
+                    val = t
                 end
-                res[i][key] = val
-            else
-                res[key] = val
+                if split then
+                    if split[key] == true then
+                        i = i + 1
+                        res[i] = {}
+                    end
+                    res[i][key] = val
+                else
+                    res[key] = val
+                end
+                if key == 'binary' then
+                  binary = val + 1
+                  res['binary'] = ''
+                end
             end
         end
     end
@@ -297,14 +414,47 @@ local function get_lines(self, ...)
 end
 
 local function send_and_get(self, cmd, ...)
-    local ok, res
+    local ok, res, noidle
+
+    local queue_pos = self.condvar:incr()
+
+    while queue_pos > 1 do
+      if queue_pos == 2 and self.idling then
+        self.conn:send('noidle\n')
+      end
+      self.condvar:wait()
+      queue_pos = queue_pos - 1
+    end
+
+    -- this happens when condvar:post was
+    -- called right after queueing an idle
+    if self.idling then
+      self.conn:send('noidle\n')
+      self.condvar:wait()
+    end
+
+    if match(cmd,'^idle') then
+      self.idling = true
+    end
     ok, res = self.conn:send(cmd .. '\n')
 
     if not ok then
+        self.idling = false
+        self.condvar:decr()
+        self.condvar:post()
         return nil, { msg = res }
     end
 
+    if self.idling then
+      -- advance latest queue member so then can send noidle
+      self.condvar:post(1)
+    end
+
     ok, res = get_lines(self, ...)
+    self.idling = false
+    self.condvar:decr()
+    self.condvar:post()
+
     if not ok then
         return nil, res
     end
@@ -344,28 +494,27 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '2.2.0',
+    _VERSION = '3.0.0',
 }
 _M.__index = _M
 
 
 function _M.global_socket_lib(name)
     if name ~= nil then
-        socket_lib_name, tcp, unix = use_socket_lib(name)
+        socket_lib, tcp, unix = use_socket_lib(name)
     end
-    return socket_lib_name
+    return socket_lib._name
 end
 
 function _M:socket_lib(name)
     if name ~= nil then
-        self._socket_lib_name, self._tcp, self._unix = use_socket_lib(name)
+        self._socket_lib, self._tcp, self._unix = use_socket_lib(name)
     end
-    return self._socket_lib_name
+    return self._socket_lib._name
 end
 
 function _M.new(opts)
     local self = {
-        reading = false,
         idling = false,
         timeout_continue = false,
     }
@@ -376,7 +525,7 @@ function _M.new(opts)
 
     self._tcp = tcp
     self._unix = unix
-    self._socket_lib_name = socket_lib_name
+    self._socket_lib = socket_lib
 
     setmetatable(self,_M)
     return self
@@ -422,6 +571,7 @@ function _M:begin(conn)
     end
 
     if match(data,'^OK MPD') then
+        self.condvar   = self._socket_lib.condvar.new()
         self.conn = conn
         return true
     end
@@ -467,16 +617,12 @@ function _M:ready_to_send()
     ok, res = self:connected()
     if not ok then return nil, res end
 
-    if self.idling then
-        return nil, { msg = 'Waiting on idle command' }
-    end
-
     return true
 end
 
 function _M:idle(...)
     local ok, res
-    ok, res = self:connected()
+    ok, res = self:ready_to_send()
     if not ok then return nil, res end
 
     local subs = {...}
@@ -485,14 +631,11 @@ function _M:idle(...)
         s = s .. ' ' .. v
     end
 
-    self.idling = true
     ok, res = send_and_get(self,'idle'..s,'changed')
 
     if not ok then
       return nil, res
     end
-
-    self.idling = false
 
     local ret = {}
     for _,v in ipairs(res) do
@@ -504,43 +647,16 @@ function _M:idle(...)
 end
 
 function _M:noidle()
-    local ok, res, data, reading
+    local ok, res
     ok, res = self:connected()
     if not ok then return nil, res end
     if not self.idling then return nil, { msg = 'not corrently idle' } end
-    reading = self.reading
 
     ok, res = self.conn:send('noidle\n')
     if not ok then
       return nil, { msg = res }
     end
 
-    if not reading then
-      self.reading = true
-      data, res = self.conn:receive('*l')
-      self.reading = false
-
-      if res then
-        ok = false
-        res = { msg = res }
-      elseif match(data,'^OK') then
-        ok = true
-      else
-        local errnum, linenum, cmd, msg = match(data,'^ACK %[([^@]+)@([^%]]+)%] %{([^%}]*)%} (.+)$')
-        if errnum then
-            ok = false
-            res = {
-                errnum = tonumber(errnum),
-                linenum = tonumber(linenum) + 1,
-                cmd = cmd,
-                msg = msg
-            }
-        end
-      end
-    else
-      ok = true
-    end
-    self.idling = false
     return ok ,res
 end
 
@@ -701,10 +817,24 @@ for _,v in ipairs({'urlhandlers'}) do
 end
 
 -- 0PARM
-for _,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status'}) do
+for _,v in ipairs({'listpartitions'}) do
     _M[v] = function(self)
         local ok, res
         ok, res = self:ready_to_send()
+        if not ok then return nil, res end
+
+        ok, res = send_and_get(self,v,'partition')
+
+        if not ok then return nil, res end
+        return res
+    end
+end
+
+-- 0PARM
+for _,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status','getvol'}) do
+    _M[v] = function(self)
+        local ok, res
+        ok, res = self:ready_to_send(v)
         if not ok then return nil, res end
 
         ok, res = send_and_get(self,v)
@@ -804,7 +934,7 @@ for _,v in ipairs({'mount'}) do
 end
 
 -- 1PARM , not nil
-for _,v in ipairs({'add','playlistclear','rm','save','password','unmount','subscribe','unsubscribe'}) do
+for _,v in ipairs({'add','playlistclear','rm','save','password','unmount','subscribe','unsubscribe','partition','newpartition','delpartition','moveoutput'}) do
     _M[v] = function(self,state)
 
         if state == nil or len(state) <= 0 then
@@ -1509,6 +1639,32 @@ for _,v in ipairs({'playlistdelete'}) do
     end
 end
 
+-- 2PARM, string, >0, returns data
+for _,v in ipairs({'albumart','readpicture'}) do
+    _M[v] = function(self, uri, off)
+        if not uri then
+            return nil, { msg = 'missing name parameter' }
+        end
+
+        if not off then
+            return nil, { msg = 'missing offset parameter' }
+        end
+
+        off = slidey(off,0)
+        if not off then
+            return nil, { msg = 'offset parameter not number > 0' }
+        end
+
+        local ok, res
+        ok, res = self:ready_to_send()
+        if not ok then return nil, res end
+
+        ok, res = send_and_get(self, v .. ' ' .. texty(uri) .. ' ' .. off)
+        if not ok then return nil, res end
+        return res
+    end
+end
+
 
 -- 2PARM, string, string
 for _,v in ipairs({'playlistfind','playlistsearch'}) do
@@ -1590,6 +1746,23 @@ function _M:replay_gain_mode(mode)
     ok, res = send_and_get(self, 'replay_gain_mode ' .. mode)
     if not ok then return nil, res end
     return mode
+end
+
+-- 1PARM, string
+for _,v in ipairs({'getfingerprint'}) do
+    _M[v] = function(self, uri)
+        local cmd = v
+        if not uri then return nil, { msg = 'missing uri parameter' } end
+        cmd = cmd .. ' ' .. texty(uri)
+
+        local ok, res
+        ok, res = self:ready_to_send()
+        if not ok then return nil, res end
+
+        ok, res = send_and_get(self, cmd)
+        if not ok then return nil, res end
+        return res
+    end
 end
 
 function _M:close()
