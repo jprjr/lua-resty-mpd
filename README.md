@@ -13,11 +13,11 @@ local events = 5
 while events > 0 do
   local res, err = client:idle()
   if err then
-      if err == 'timeout' then
+      if err.msg == 'timeout' then
           -- cancel current idle for next loop
           local noidle_ok, noidle_err = client:noidle()
           if noidle_err then
-              print('Error: ' .. noidle_err)
+              print('Error: ' .. noidle_err.msg)
               os.exit(1)
           end
       else
@@ -25,7 +25,7 @@ while events > 0 do
           os.exit(1)
       end
   else
-      for _,event in pairs(res) do
+      for _,event in ipairs(res) do
           print('Event: ' .. event)
           events = events - 1
           -- do something based on the event
@@ -33,6 +33,17 @@ while events > 0 do
   end
 end
 ```
+
+## Global options
+
+### `libname = mpd.global_socket_lib([name])`
+
+Returns the socket library being used by all new clients, `name` is an optional
+parameter to choose a particular library. Valid `name` values are:
+
+* `ngx` - nginx cosockets.
+* `cqueues` - cqueues.
+* `socket` - luasocket.
 
 ## Instantiating a client
 
@@ -45,6 +56,15 @@ of parameters for the client. Accepted parameters:
 continue attempting to read even during a timeout. If you have
 a client that loops around calls to `idle` you may want to
 consider enabling this.
+
+### `libname = client:socket_lib([name])`
+
+Returns the socket library being used by the client, `name` is an optional
+parameter to choose a particular library. Valid `name` values are:
+
+* `ngx` - nginx cosockets.
+* `cqueues` - cqueues.
+* `socket` - luasocket.
 
 ### `ok, err = client:connect(url)`
 
@@ -62,6 +82,22 @@ The URL should be in one of two formats:
 ### `ok, err = client:close()`
 
 ## Changelog
+
+### Version 2.2.0
+
+New feature, now supports cqueues socket library.
+
+Library is auto-detected with the following priority:
+
+1. nginx cosockets
+2. cqueues
+3. luasocket
+
+This can be overridden at a global level, or per-client.
+
+### Version 2.1.1
+
+Bugfix: escape quotes/backslashes when sending.
 
 ### Version 2.1.0
 

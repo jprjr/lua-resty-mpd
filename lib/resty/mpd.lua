@@ -1,6 +1,7 @@
 -- luacheck: globals ngx
 local tcp
 local unix
+local socket_lib_name
 
 -- base library
 -- all compiled by LuaJIT
@@ -8,6 +9,7 @@ local type = type
 local ipairs = ipairs
 local tonumber = tonumber
 local setmetatable = setmetatable
+local error = error
 
 -- string library
 local match = string.match -- not compiled by LuaJIT
@@ -23,14 +25,194 @@ local insert = table.insert -- compiled when pushing (true in this library)
 
 -- math library
 local huge = math.huge -- constant
+local floor = math.floor
 
-if ngx then
-    tcp = ngx.socket.tcp
-    unix = tcp
-else
-    tcp = require'socket'.tcp
-    unix = require'socket.unix'
+-- wrapper for a few different socket modules
+local mpd_socket = {}
+mpd_socket.nginx = {}
+mpd_socket.cqueues = {}
+mpd_socket.socket = {}
+mpd_socket.nginx.tcp = {}
+mpd_socket.nginx.unix = {}
+mpd_socket.cqueues.tcp = {}
+mpd_socket.cqueues.unix = {}
+mpd_socket.socket.tcp = {}
+mpd_socket.socket.unix = {}
+
+setmetatable(mpd_socket.nginx,        { __index = mpd_socket })
+setmetatable(mpd_socket.cqueues,      { __index = mpd_socket })
+setmetatable(mpd_socket.socket,       { __index = mpd_socket })
+
+setmetatable(mpd_socket.nginx.tcp,    { __index = mpd_socket.nginx })
+setmetatable(mpd_socket.nginx.unix,   { __index = mpd_socket.nginx })
+
+setmetatable(mpd_socket.cqueues.tcp,  { __index = mpd_socket.cqueues })
+setmetatable(mpd_socket.cqueues.unix, { __index = mpd_socket.cqueues })
+
+setmetatable(mpd_socket.socket.tcp,   { __index = mpd_socket.socket })
+setmetatable(mpd_socket.socket.unix,  { __index = mpd_socket.socket })
+
+mpd_socket.receive = function(self,amount)
+  return self._socket:receive(amount)
 end
+
+mpd_socket.send = function(self,amount)
+  return self._socket:send(amount)
+end
+
+mpd_socket.close = function(self)
+  return self._socket:close()
+end
+
+mpd_socket.nginx.settimeout = function(self,timeout)
+  return self._socket:settimeout(timeout)
+end
+
+mpd_socket.nginx.tcp.connect = function(self)
+  return self._socket:connect(self._host,self._port)
+end
+
+mpd_socket.nginx.unix.connect = function(self)
+  return self._socket:connect('unix:' .. self._path)
+end
+
+mpd_socket.cqueues.settimeout = function(self,timeout)
+  if type(timeout) == 'number' then
+    self._timeout = timeout / 1000
+  else
+    self._timeout = timeout
+  end
+  return true
+end
+
+mpd_socket.cqueues.connect = function(self)
+  return self._socket:connect(self._timeout)
+end
+
+mpd_socket.cqueues.receive = function(self,amount)
+  return self._socket:read(amount)
+end
+
+mpd_socket.cqueues.send = function(self,data)
+  return self._socket:write(data)
+end
+
+mpd_socket.socket.settimeout = function(self,timeout)
+  if type(timeout) == 'number' then
+    self._socket:settimeout(floor(timeout / 1000))
+  else
+    self._socket:settimeout(timeout)
+  end
+  return true
+end
+
+mpd_socket.socket.tcp.connect = function(self)
+  return self._socket:connect(self._host,self._port)
+end
+
+mpd_socket.socket.unix.connect = function(self)
+  return self._socket:connect(self._path)
+end
+
+local function create_socket_funcs_nginx()
+  return 'ngx', function(host,port)
+    local t = {
+      _host = host,
+      _port = port,
+      _socket = ngx.socket.tcp()
+    }
+    setmetatable(t,{__index = mpd_socket.nginx.tcp})
+    return t
+  end, function(path)
+    local t = {
+      _path = path,
+      _socket = ngx.socket.tcp()
+    }
+    setmetatable(t,{__index = mpd_socket.nginx.unix})
+    return t
+  end
+end
+
+local function create_socket_funcs_cqueues()
+  local cqueues_lib = require'cqueues.socket'
+  return 'cqueues', function(host,port)
+    local t = {
+      _host = host,
+      _port = port,
+      _socket = cqueues_lib.connect({
+        host = host,
+        port =port
+      })
+    }
+    t._socket:setmode('b-p','bla')
+    setmetatable(t,{__index = mpd_socket.cqueues.tcp})
+    return t
+  end, function(path)
+    local t = {
+      _path = path,
+      _socket = cqueues_lib.connect({
+        path = path
+      })
+    }
+    t._socket:setmode('b-p','bla')
+    setmetatable(t,{__index = mpd_socket.cqueues.unix})
+    return t
+  end
+end
+
+local function create_socket_funcs_socket()
+  local socket_lib = require'socket'
+  local unix_socket_lib = require'socket.unix'
+  return 'socket', function(host,port)
+    local t = {
+      _host = host,
+      _port = port,
+      _socket = socket_lib.tcp(),
+    }
+    setmetatable(t,{__index = mpd_socket.socket.tcp})
+    return t
+  end, function(path)
+    local t = {
+      _path = path,
+      _socket = unix_socket_lib()
+    }
+    setmetatable(t,{__index = mpd_socket.socket.unix})
+    return t
+  end
+end
+
+local function create_socket_funcs()
+  if ngx then
+    return create_socket_funcs_nginx()
+  end
+
+  if pcall(require,'cqueues.socket') then
+    return create_socket_funcs_cqueues()
+  end
+
+  if pcall(require,'socket') then
+    return create_socket_funcs_socket()
+  end
+
+  return error('unable to find socket library')
+end
+
+local function use_socket_lib(lib)
+  if lib == 'ngx' then
+    return create_socket_funcs_nginx()
+  end
+
+  if lib == 'cqueues' then
+    return create_socket_funcs_cqueues()
+  end
+
+  if lib == 'socket' then
+    return create_socket_funcs_socket()
+  end
+  return error('unknown socket library: ' .. lib)
+end
+
+socket_lib_name, tcp, unix = create_socket_funcs()
 
 local replay_gain_modes = {
     off = true,
@@ -162,9 +344,24 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '2.1.1',
+    _VERSION = '2.2.0',
 }
 _M.__index = _M
+
+
+function _M.global_socket_lib(name)
+    if name ~= nil then
+        socket_lib_name, tcp, unix = use_socket_lib(name)
+    end
+    return socket_lib_name
+end
+
+function _M:socket_lib(name)
+    if name ~= nil then
+        self._socket_lib_name, self._tcp, self._unix = use_socket_lib(name)
+    end
+    return self._socket_lib_name
+end
 
 function _M.new(opts)
     local self = {
@@ -176,6 +373,10 @@ function _M.new(opts)
         timeout_continue = false
     }
     self.timeout_continue = opts.timeout_continue
+
+    self._tcp = tcp
+    self._unix = unix
+    self._socket_lib_name = socket_lib_name
 
     setmetatable(self,_M)
     return self
@@ -237,29 +438,19 @@ function _M:connected()
     local _,err
 
     if self.proto == 'tcp' then
-        conn, err = tcp()
+        conn, err = self._tcp(self.host,self.port)
         if err then return nil, { msg = err } end
-
-        _,err = conn:connect(self.host,self.port)
-        if err then
-            return nil, { msg = err }
-        end
     else
-        conn, err = unix()
+        conn, err = self._unix(self.path)
         if err then return nil, { msg = err } end
-
-        if ngx then
-            _,err = conn:connect('unix:'..self.path)
-        else
-            _,err = conn:connect(self.path)
-        end
-
-        if err then
-            return nil, { msg = err }
-        end
     end
 
-    conn:settimeout(10 * (ngx and 1000 or 1))
+    _,err = conn:connect()
+    if err then
+        return nil, { msg = err }
+    end
+
+    conn:settimeout(10000)
 
     _, err = self:begin(conn)
     if err then
