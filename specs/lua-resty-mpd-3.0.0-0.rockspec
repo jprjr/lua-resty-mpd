@@ -1,8 +1,8 @@
 package = "lua-resty-mpd"
-version = "2.2.0-0"
+version = "3.0.0-0"
 source = {
-    url = "https://github.com/jprjr/lua-resty-mpd/archive/2.2.0.tar.gz",
-    file = "lua-resty-mpd-2.2.0.tar.gz"
+    url = "https://github.com/jprjr/lua-resty-mpd/archive/3.0.0.tar.gz",
+    file = "lua-resty-mpd-3.0.0.tar.gz"
 }
 description = {
     summary = "An OpenResty/Luasocket MPD client library",
