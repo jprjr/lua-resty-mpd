@@ -60,14 +60,6 @@ setmetatable(mpd_socket.socket.unix,  { __index = mpd_socket.socket })
 
 mpd_socket.condvar = {}
 
-mpd_socket.condvar.acquire = function(self)
-  return true
-end
-
-mpd_socket.condvar.release = function(self)
-  return true
-end
-
 mpd_socket.condvar.new = function()
   local t = {
     _active = 0
@@ -76,25 +68,11 @@ mpd_socket.condvar.new = function()
   return t
 end
 
-mpd_socket.condvar.incr = function(self)
-  self._active = self._active + 1
-  return self._active
-end
-
-mpd_socket.condvar.decr = function(self)
-  self._active = self._active - 1
-  return self._active
-end
-
-mpd_socket.condvar.val = function(self)
-  return self._active
-end
-
-mpd_socket.condvar.wait = function(self)
+mpd_socket.condvar.wait = function()
   return true
 end
 
-mpd_socket.condvar.post = function(self)
+mpd_socket.condvar.post = function()
   return true
 end
 
@@ -119,8 +97,7 @@ setmetatable(mpd_socket.cqueues.condvar,  { __index = mpd_socket.condvar })
 
 mpd_socket.nginx.condvar.new = function()
   local t = {
-    _condvar = require'ngx.semaphore'.new(),
-    _active = 0,
+    _condvar = require'ngx.semaphore'.new(1),
   }
   setmetatable(t,{__index = mpd_socket.nginx.condvar})
   return t
@@ -130,43 +107,39 @@ mpd_socket.nginx.condvar.wait = function(self)
     return self._condvar:wait(10)
 end
 
-mpd_socket.nginx.condvar.post = function(self,n)
-  local count = self._condvar:count()
-  if count < 0 and n == nil then
-    n = count * -1
-  end
-  return self._condvar:post(n)
+mpd_socket.nginx.condvar.post = function(self)
+    -- only post if count < 1
+    if self._condvar:count() < 1 then
+      self._condvar:post(1)
+    end
+    ngx.sleep(0.001)
+    return true
 end
 
 mpd_socket.cqueues.condvar.new = function()
+  local cqueues = require'cqueues'
   local condition = require'cqueues.condition'
   local t = {
-    _condvar = condition.new(),
-    _active = 0,
+    _cqueues = cqueues,
+    _condvar = condition.new(false),
+    _active = 1,
   }
   setmetatable(t,{__index = mpd_socket.cqueues.condvar})
   return t
 end
 
 mpd_socket.cqueues.condvar.wait = function(self)
-    return self._condvar:wait()
+    while self._active == 0 do
+      self._condvar:wait()
+    end
+    self._active = self._active - 1
 end
 
-mpd_socket.cqueues.condvar.post = function(self,n)
-  return self._condvar:signal(n)
-end
-
-mpd_socket.cqueues.condvar.acquire = function(self)
-  local active = self:incr()
-  while active > 1 do
-    self:wait()
-    active = active - 1
-  end
-end
-
-mpd_socket.cqueues.condvar.release = function(self)
-  self:decr()
-  self:post()
+mpd_socket.cqueues.condvar.post = function(self)
+  self._active = self._active + 1
+  if self._active > 1 then self._active = 1 end
+  self._condvar:signal(1)
+  self._cqueues.sleep(0.001)
 end
 
 mpd_socket.nginx.settimeout = function(self,timeout)
@@ -416,22 +389,17 @@ end
 local function send_and_get(self, cmd, ...)
     local ok, res, noidle
 
-    local queue_pos = self.condvar:incr()
+    -- somebody is actively using, so wait
+    self.condvar:wait()
 
-    while queue_pos > 1 do
-      if queue_pos == 2 and self.idling then
-        self.conn:send('noidle\n')
-      end
-      self.condvar:wait()
-      queue_pos = queue_pos - 1
-    end
-
-    -- this happens when condvar:post was
-    -- called right after queueing an idle
     if self.idling then
+      -- idle call is running, send noidle and wait for it
       self.conn:send('noidle\n')
       self.condvar:wait()
     end
+
+    -- not idle, wait for anybody to wrap up
+    --self.condvar:wait()
 
     if match(cmd,'^idle') then
       self.idling = true
@@ -440,19 +408,15 @@ local function send_and_get(self, cmd, ...)
 
     if not ok then
         self.idling = false
-        self.condvar:decr()
-        self.condvar:post()
         return nil, { msg = res }
     end
 
     if self.idling then
-      -- advance latest queue member so then can send noidle
-      self.condvar:post(1)
+      self.condvar:post()
     end
 
     ok, res = get_lines(self, ...)
     self.idling = false
-    self.condvar:decr()
     self.condvar:post()
 
     if not ok then
@@ -494,7 +458,7 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '3.0.0',
+    _VERSION = '3.0.1',
 }
 _M.__index = _M
 
@@ -834,7 +798,7 @@ end
 for _,v in ipairs({'config','currentsong','status','stats', 'replay_gain_status','getvol'}) do
     _M[v] = function(self)
         local ok, res
-        ok, res = self:ready_to_send(v)
+        ok, res = self:ready_to_send()
         if not ok then return nil, res end
 
         ok, res = send_and_get(self,v)

@@ -1,5 +1,15 @@
 # lua-resty-mpd
 
+Despite the name "lua-resty-mpd" this will work on regular Lua as well!
+
+This is a library for interacting with [Music Player Daemon](https://www.musicpd.org/),
+over TCP sockets or Unix sockets.
+
+It works with [OpenResty's cosockets](https://github.com/openresty/lua-nginx-module#ngxsockettcp),
+[cqueues sockets](https://github.com/wahern/cqueues), and
+[LuaSocket](http://w3.impa.br/~diego/software/luasocket/). It will try to auto-detect the most
+appropriate library to use, you can also specify if you'd like to use a particular library.
+
 ## Example Usage
 
 ```lua
@@ -82,6 +92,11 @@ The URL should be in one of two formats:
 ### `ok, err = client:close()`
 
 ## Changelog
+
+### Version 3.0.1
+
+Bug fix with condition variables/semaphores, seems to
+be way more reliable now at calling noidle.
 
 ### Version 3.0.0
 
