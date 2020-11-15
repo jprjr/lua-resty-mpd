@@ -93,6 +93,14 @@ The URL should be in one of two formats:
 
 ## Changelog
 
+### Version 4.0.0
+
+Reverts the automatic noidle via condvar/semaphore, it
+turned out this wasn't a good idea.
+
+Retains previous enhancements of handling binary responses
+and being compatible up to MPD 0.22.0.
+
 ### Version 3.0.1
 
 Bug fix with condition variables/semaphores, seems to

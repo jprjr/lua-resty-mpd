@@ -58,24 +58,6 @@ setmetatable(mpd_socket.cqueues.unix, { __index = mpd_socket.cqueues })
 setmetatable(mpd_socket.socket.tcp,   { __index = mpd_socket.socket })
 setmetatable(mpd_socket.socket.unix,  { __index = mpd_socket.socket })
 
-mpd_socket.condvar = {}
-
-mpd_socket.condvar.new = function()
-  local t = {
-    _active = 0
-  }
-  setmetatable(t,{__index = mpd_socket.condvar})
-  return t
-end
-
-mpd_socket.condvar.wait = function()
-  return true
-end
-
-mpd_socket.condvar.post = function()
-  return true
-end
-
 mpd_socket.receive = function(self,amount)
   local data, err = self._socket:receive(amount)
   return data, err
@@ -87,59 +69,6 @@ end
 
 mpd_socket.close = function(self)
   return self._socket:close()
-end
-
-mpd_socket.nginx.condvar = {}
-setmetatable(mpd_socket.nginx.condvar,  { __index = mpd_socket.condvar })
-
-mpd_socket.cqueues.condvar = {}
-setmetatable(mpd_socket.cqueues.condvar,  { __index = mpd_socket.condvar })
-
-mpd_socket.nginx.condvar.new = function()
-  local t = {
-    _condvar = require'ngx.semaphore'.new(1),
-  }
-  setmetatable(t,{__index = mpd_socket.nginx.condvar})
-  return t
-end
-
-mpd_socket.nginx.condvar.wait = function(self)
-    return self._condvar:wait(10)
-end
-
-mpd_socket.nginx.condvar.post = function(self)
-    -- only post if count < 1
-    if self._condvar:count() < 1 then
-      self._condvar:post(1)
-    end
-    ngx.sleep(0.001)
-    return true
-end
-
-mpd_socket.cqueues.condvar.new = function()
-  local cqueues = require'cqueues'
-  local condition = require'cqueues.condition'
-  local t = {
-    _cqueues = cqueues,
-    _condvar = condition.new(false),
-    _active = 1,
-  }
-  setmetatable(t,{__index = mpd_socket.cqueues.condvar})
-  return t
-end
-
-mpd_socket.cqueues.condvar.wait = function(self)
-    while self._active == 0 do
-      self._condvar:wait()
-    end
-    self._active = self._active - 1
-end
-
-mpd_socket.cqueues.condvar.post = function(self)
-  self._active = self._active + 1
-  if self._active > 1 then self._active = 1 end
-  self._condvar:signal(1)
-  self._cqueues.sleep(0.001)
 end
 
 mpd_socket.nginx.settimeout = function(self,timeout)
@@ -387,37 +316,14 @@ local function get_lines(self, ...)
 end
 
 local function send_and_get(self, cmd, ...)
-    local ok, res, noidle
-
-    -- somebody is actively using, so wait
-    self.condvar:wait()
-
-    if self.idling then
-      -- idle call is running, send noidle and wait for it
-      self.conn:send('noidle\n')
-      self.condvar:wait()
-    end
-
-    -- not idle, wait for anybody to wrap up
-    --self.condvar:wait()
-
-    if match(cmd,'^idle') then
-      self.idling = true
-    end
+    local ok, res
     ok, res = self.conn:send(cmd .. '\n')
 
     if not ok then
-        self.idling = false
         return nil, { msg = res }
     end
 
-    if self.idling then
-      self.condvar:post()
-    end
-
     ok, res = get_lines(self, ...)
-    self.idling = false
-    self.condvar:post()
 
     if not ok then
         return nil, res
@@ -458,7 +364,7 @@ local function slidey(state, min, max)
 end
 
 local _M = {
-    _VERSION = '3.0.1',
+    _VERSION = '4.0.0',
 }
 _M.__index = _M
 
@@ -535,7 +441,6 @@ function _M:begin(conn)
     end
 
     if match(data,'^OK MPD') then
-        self.condvar   = self._socket_lib.condvar.new()
         self.conn = conn
         return true
     end
@@ -581,6 +486,10 @@ function _M:ready_to_send()
     ok, res = self:connected()
     if not ok then return nil, res end
 
+    if self.idling then
+      return nil, { msg = 'idling' }
+    end
+
     return true
 end
 
@@ -595,7 +504,9 @@ function _M:idle(...)
         s = s .. ' ' .. v
     end
 
+    self.idling = true
     ok, res = send_and_get(self,'idle'..s,'changed')
+    self.idling = false
 
     if not ok then
       return nil, res
