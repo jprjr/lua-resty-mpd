@@ -704,7 +704,7 @@ local function require_resty_mpd_commands()
   local function cond_wrapper(f)
     return function(self,...)
       if not self.socket then
-        return nil,'not connected'
+        return nil,'socket:not connected'
       end
       local cond = self._backend.condition.new()
   
@@ -974,7 +974,7 @@ local function require_resty_mpd_commands()
   
   function commands:close()
     if not self.socket then
-      return nil,'not connected'
+      return nil,'socket:not connected'
     end
     local cond = self._backend.condition.new()
     local stack = stack_lib.new()
