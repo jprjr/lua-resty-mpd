@@ -36,7 +36,7 @@ end
 local function cond_wrapper(f)
   return function(self,...)
     if not self.socket then
-      return nil,'not connected'
+      return nil,'socket:not connected'
     end
     local cond = self._backend.condition.new()
 
@@ -306,7 +306,7 @@ end
 
 function commands:close()
   if not self.socket then
-    return nil,'not connected'
+    return nil,'socket:not connected'
   end
   local cond = self._backend.condition.new()
   local stack = stack_lib.new()
