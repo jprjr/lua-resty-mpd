@@ -10,11 +10,34 @@ It works with [OpenResty's cosockets](https://github.com/openresty/lua-nginx-mod
 [LuaSocket](http://w3.impa.br/~diego/software/luasocket/). It will try to auto-detect the most
 appropriate library to use, you can also specify if you'd like to use a particular library.
 
+You can use this library synchronously or asynchronously in nginx and cqueues,
+on Luasocket, you can only perform synchronous operations.
+
+## Installation
+
+You can use `luarocks`:
+
+`luarocks install lua-resty-mpd`
+
+Or OPM:
+
+`opm get jprjr/lua-resty-mpd`
+
+Or grab the amalgamation file from this repo (under `lib/`), it's all
+the sources of this module combined into a single file.
+
+Since this can use multiple socket libraries, I don't list them as dependencies,
+you'll need to install luasocket or cqueues on your own. No other external
+dependencies are required.
+
 ## Example Usage
+
+Here's an script that just loops over calls to idle().
 
 ```lua
 local mpd = require'resty.mpd'
-local client = mpd.new()
+local client = mpd()
+client:settimeout(1000) -- set a low timeout just to demo idle timing out.
 client:connect('tcp://127.0.0.1:6600')
 
 -- loop until we've read 5 events
@@ -22,59 +45,220 @@ local events = 5
 
 while events > 0 do
   local res, err = client:idle()
-  if err then
-      if err.msg == 'timeout' then
-          -- cancel current idle for next loop
-          local noidle_ok, noidle_err = client:noidle()
-          if noidle_err then
-              print('Error: ' .. noidle_err.msg)
-              os.exit(1)
-          end
-      else
-          print('Error: ' .. err)
-          os.exit(1)
-      end
-  else
-      for _,event in ipairs(res) do
-          print('Event: ' .. event)
-          events = events - 1
-          -- do something based on the event
-       end
+  if err and err ~= 'socket:timeout' then
+    print('Error: ' .. err)
+    os.exit(1)
+  end
+  for _,event in ipairs(res) do
+    print('Event: ' .. event)
+    events = events - 1
+    -- do something based on the event
   end
 end
+client:close()
+
+```
+
+Here's an example of asynchronous usage under openresty, using nginx threads:
+
+```lua
+local mpd = require'resty.mpd'
+
+local client = mpd()
+
+-- If MPD isn't running, bail
+
+assert(client:connect('127.0.0.1'))
+
+-- Holds references to our threads
+
+local threads = {}
+
+-- Each entry is the command to run and a
+-- key that should be in the response.
+--
+-- We do this to verify that each thread is
+-- getting the correct response (if we called
+-- "status" but didn't get the "state" key, then
+-- something went really, really wong.
+
+local commands = {
+  { 'status', 'state' },
+  { 'stats',  'uptime' },
+  { 'replay_gain_status','replay_gain_mode'},
+}
+
+-- Start a loop around client:idle().
+-- This will write out any idle events (should be zero
+-- unless you happen to do something to MPD in the
+-- 2 seconds that this script runs for), and
+-- exits if it receives an error.
+table.insert(threads,ngx.thread.spawn(function()
+  while true do
+    print('calling client:idle()')
+    local events, err = client:idle()
+    if err and err ~= 'socket:timeout' then
+      print(string.format('client:idle() error %s',err))
+      return false, err
+    end
+
+    print(string.format('client:idle() returned %d events',#events))
+    for _,event in ipairs(events) do
+      print(string.format('client:idle() event: %s',event))
+    end
+  end
+end))
+
+-- Start threads to send individual commands.
+-- These will interrupt the idle call and force
+-- idle to return zero events.
+for i=1,#commands do
+  table.insert(threads,ngx.thread.spawn(function()
+    local func = commands[i][1]
+    local key  = commands[i][2]
+    print(string.format('calling client:%s()',func))
+    local res, err = client[func](client)
+    if err then
+      print(string.format('client:%s() error: %s',func,err))
+      return false, err
+    end
+    if not res[key] then
+      err = string.format('missing key %s',key)
+      print(string.format('client:%s() error: %s',func,err))
+      return false,err
+    end
+    print(string.format('client:%s() success',func))
+    return true
+  end))
+end
+
+-- Shut everything down after 2 seconds.
+table.insert(threads,ngx.thread.spawn(function()
+  ngx.sleep(2)
+  print('calling client:close()')
+  local ok, err = client:close()
+  if err then
+    print(string.format('client:close() err: ' .. err))
+  end
+end))
+
+-- Rejoin all the threads
+for i=1,#threads do
+  local ok, err = ngx.thread.wait(threads[i])
+  if not ok then error(err) end
+end
+
+```
+
+This is basically the same as the nginx example but with cqueues.
+No comments in this one since it's virtually identical.
+
+```lua
+local cqueues = require'cqueues'
+local mpd = require'resty.mpd'
+local loop = cqueues.new()
+
+local client = mpd.new()
+assert(client:connect('127.0.0.1'))
+
+local commands = {
+  { 'status', 'state' },
+  { 'stats',  'uptime' },
+  { 'replay_gain_status','replay_gain_mode'},
+}
+
+loop:wrap(function()
+  while true do
+    print('calling client:idle()')
+    local events, err = client:idle()
+    if err and err ~= 'socket:timeout' then
+      print(string.format('client:idle() error %s',err))
+      return false, err
+    end
+
+    print(string.format('client:idle() returned %d events',#events))
+    for _,event in ipairs(events) do
+      print(string.format('client:idle() event: %s',event))
+    end
+  end
+end)
+
+for i=1,#commands do
+  loop:wrap((function()
+    local func = commands[i][1]
+    local key  = commands[i][2]
+    print(string.format('calling client:%s()',func))
+    local res, err = client[func](client)
+    if err then
+      print(string.format('client:%s() error: %s',func,err))
+      return false, err
+    end
+
+    if not res[key] then
+      err = string.format('missing key %s',key)
+      print(string.format('client:%s() error: %s',func,err))
+      return false,err
+    end
+    print(string.format('client:%s() success',func))
+    return true
+  end))
+end
+
+loop:wrap(function()
+  cqueues.sleep(2)
+  print('calling client:close()')
+  local ok, err = client:close()
+  if err then
+    print(string.format('client:close() err: ' .. err))
+  end
+end)
+
+assert(loop:loop())
 ```
 
 ## Global options
 
-### `libname = mpd.global_socket_lib([name])`
+### `lib = mpd:backend([name])`
 
-Returns the socket library being used by all new clients, `name` is an optional
-parameter to choose a particular library. Valid `name` values are:
+Returns the socket/condition variable library being used by all
+new clients, `name` is an optional parameter to choose a particular
+library. Valid `name` values are:
 
-* `ngx` - nginx cosockets.
+* `nginx` - nginx cosockets.
 * `cqueues` - cqueues.
-* `socket` - luasocket.
+* `luasocket` - luasocket.
+
+If a library isn't available, it will instead return the default
+library.
+
+The returned value is the library in use, you can check the `.name`
+field to see which specific library it is. Example:
+
+```lua
+lib = mpd:backend('luasocket')
+assert(lib.name == 'luasocket')
+```
 
 ## Instantiating a client
 
-### `client = mpd.new(opts)`
+### `client = mpd()`
 
-Returns a new MPD client object. Opts is an (optional) table
-of parameters for the client. Accepted parameters:
+Creates a new client instance.
 
-* `timeout_continue` - boolean. If true, reading operations will
-continue attempting to read even during a timeout. If you have
-a client that loops around calls to `idle` you may want to
-consider enabling this.
+You can also call this as `mpd.new()`
 
-### `libname = client:socket_lib([name])`
+### `lib = client:backend([name])`
 
-Returns the socket library being used by the client, `name` is an optional
-parameter to choose a particular library. Valid `name` values are:
+Returns the socket library being used by this particular client,
+it behaves the same as `mpd:backend` above.
 
-* `ngx` - nginx cosockets.
+* `nginx` - nginx cosockets.
 * `cqueues` - cqueues.
-* `socket` - luasocket.
+* `luasocket` - luasocket.
+
+If your client has already called `connect`, you're unable to
+change the library, you'll need to call `close`, change the
+library, then reconnect.
 
 ### `ok, err = client:connect(url)`
 
@@ -89,9 +273,113 @@ The URL should be in one of two formats:
 * `tcp://host` (implied port 6600)
 * `path/to/socket` (does not have to be absolute)
 
+### ok, err = client:settimeout(ms)
+
+Sets the socket timeout in milliseconds, or use `nil` to
+represent no timeout.
+
+By default, clients have no timeout and will block forever,
+please note this includes the nginx/OpenResty backend.
+
+(Technically OpenResty doesn't support having no timeout, so it's set
+to the maximum value).
+
 ### `ok, err = client:close()`
 
+Closes the connection, forces any pending operations to error out.
+
+## Implemented Protocol Functions and error handling
+
+I used to list every implemented function, instead I recommend
+just looking up the MPD protocol documentation:
+[https://www.musicpd.org/doc/protocol/command_reference.html](https://www.musicpd.org/doc/protocol/command_reference.html)
+
+Commands return either a table of results or a boolean as the first
+return value, and an error (if any) as the second.
+
+If the error is from MPD, the message will begin with the string
+`mpd:` followed by the error number, and the error message in parenthesis,
+example:
+
+`mpd:50(No such file)`
+
+Any socket-related error messaged will begin with `socket:`, these
+are non-recoverable (you should disconnect/quit/etc).
+
+### `client:idle()`
+
+When `idle` times out, it automatically sends `noidle` to cancel
+the current `idle` request. Otherwise, your scheduler (nginx threads,
+cqueues, etc) *could* potentially send a command before you
+call `noidle` from your app, since when `idle` ends the next queued
+command gets called.
+
+What this means is `idle` will always return a list of events,
+which may be an empty table in the case of a timeout, you should
+check the value of `err` to see if there was a timeout (if `err`
+is `nil`, then the `idle` was canceled intentionally via another
+command being queued).
+
+### General usage
+
+Generally-speaking you just send values like listed in the docs. For example, the MPD protocol
+documentation has the following prototype for the `list` command:
+
+`list {TYPE} {FILTER} [group {GROUPTYPE}]`
+
+This would translate to:
+
+```lua
+response, err = client:list(type,filter,group,grouptype)
+```
+
+For functions that take ranges, you use separate parameters for each part of the range. For
+example, using the `find` command, which lets you specify a `window` range:
+
+`find {FILTER} [sort {TYPE}] [window {START:END}]`
+
+This becomes
+
+```lua
+response, err = client:find(filter,sort,type,window,start,end)
+```
+
+For optional parameters, just leave them out. If you wanted to call
+`find` with just a filter and window:
+
+
+```lua
+response, err = client:find(filter,window,start,end)
+```
+
+Or for just a filter:
+
+```lua
+response, err = client:find(filter)
+```
+
+Groups (and nested groups) are fully supported for commands that use them,
+groups will return an array-like table instead of an object, so as an
+example:
+
+```lua
+local res, err = client:list('title','group','album','group','albumartist')
+```
+
+Res will be an array-like table, each entry will contain a `title`, `album`, and
+`albumartist` key.
+
 ## Changelog
+
+### Version 5.0.0
+
+Complete rewrite, client commands (list, play, etc) should be
+compatible with older versions, but functions for choosing
+backend libraries are not.
+
+This was rewritten with asynchronous operations in mind, the
+new version can auto-call `noidle` as needed without any
+hacks like in version 3.
 
 ### Version 4.0.0
 
@@ -187,218 +475,6 @@ The URL can additionally use the formats:
 * `path/to/socket` (does not have to be absolute)
 
 I still recommend the `tcp://` or `unix:` prefixes to be explicit
-
-## Implemented Protocol Functions
-
-For details on each of these functions, see the MPD proto docs:
-[https://www.musicpd.org/doc/protocol/command_reference.html](https://www.musicpd.org/doc/protocol/command_reference.html)
-
-### `ok, err = client:clearerror()`
-
-Clears any current error message
-
-### `res, err = client:currentsong()`
-
-Returns a table about the current song. In the
-case of an error, returns `nil` and an object
-describing the error.
-
-
-### `events, err = client:idle(...)`
-
-Waits until MPD emits a noteworthy change. You can specify a list of
-events you're interested in, or leave blank for all events. Returns
-an array of events.
-
-May return zero events, in the case of canceling an idle via `client:noidle()`
-
-The events:
-
-* database
-* update
-* stored_playlist
-* playlist
-* player
-* mixer
-* output
-* options
-* sticker
-* subscription
-* message
-
-### `res, err = client:status()`
-
-### `res, err = client:stats()`
-
-### `boolean, err = client:consume(boolean)`
-
-### `duration, err = client:crossfade(duration)`
-
-### `db, err = client:mixrampdb(db)`
-
-### `duration, err = client:mixrampdelay(duration)`
-
-### `boolean, err = client:random(boolean)`
-
-### `boolean, err = client:_repeat(boolean)`
-
-### `volume, err = client:setvol(volume)`
-
-### `boolean, err = client:single(boolean)`
-
-### `mode, err = client:replay_gain_mode(mode)`
-
-### `status, err = client:replay_gain_status()`
-
-### `ok, err = client:_next()`
-
-### `boolean, err = client:pause(boolean)`
-
-### `ok, err = client:play([pos])`
-
-### `ok, err = client:playid([id])`
-
-### `ok, err = client:previous()`
-
-### `ok, err = client:seek(songpos, time)`
-
-### `ok, err = client:seekid(songid, time)`
-
-### `ok, err = client:seekcur(time)`
-
-### `ok, err = client:stop()`
-
-### `ok, err = client:add(uri)`
-
-### `ok, err = client:addid(uri,position)`
-
-### `ok, err = client:clear()`
-
-### `ok, err = client:_delete(pos, [end])`
-
-### `ok, err = client:deleteid(songid)`
-
-### `ok, err = client:move(start, end | to, [to])`
-
-### `ok, err = client:moveid(from, to)`
-
-### `res, err = client:playlistfind(tag, needle)`
-
-### `res, err = client:playlistid(id)`
-
-### `res, err = client:playlistinfo([pos],[end])`
-
-### `res, err = client:playlistsearch(tag, needle)`
-
-### `res, err = client:plchanges(version, [start], [end])`
-
-### `ok, err = client:prio(priority, [start], [end], ...)`
-
-### `ok, err = client:prioid(priority, id, ... id+)`
-
-### `ok, err = client:rangeid(id, [start], [end])`
-
-### `ok, err = client:shuffle([start], [end])`
-
-### `ok, err = client:swap(song1, song2)`
-
-### `ok, err = client:swapid(song1, song2)`
-
-### `ok, err = client:addtagid(id, tag, value)`
-
-### `ok, err = client:cleartagid(id, [tag])`
-
-### `res, err = client:listplaylist(name)`
-
-### `res, err = client:listplaylistinfo(name)`
-
-### `res, err = client:listplaylists()`
-
-### `ok, err = client:load(name, [start], [end])`
-
-### `ok, err = client:playlistadd(name, uri)`
-
-### `ok, err = client:playlistclear(name)`
-
-### `ok, err = client:playlistdelete(name, pos)`
-
-### `ok, err = client:playlistmove(name, from, to)`
-
-### `ok, err = client:rename(name, newname)`
-
-### `ok, err = client:rm(name)`
-
-### `ok, err = client:save(name)`
-
-### `ok, err = client:password(password)`
-
-### `ok, err = client:ping()`
-
-### `ok, err = client:kill()`
-
-### `res, err = client:count(...)`
-
-### `res, err = client:find(...)`
-
-### `res, err = client:findadd(...)`
-
-### `res, err = client:list(type,...)`
-
-### `res, err = client:listfiles([uri])`
-
-### `res, err = client:lsinfo([uri])`
-
-### `res, err = client:readcomments([uri])`
-
-### `res, err = client:search(...)`
-
-### `res, err = client:searchadd(...)`
-
-### `res, err = client:searchaddpl(playlist, ...)`
-
-### `res, err = client:update([uri])`
-
-### `res, err = client:rescan([uri])`
-
-### `res, err = client:sticker(...)`
-
-### `id, err = client:disableoutput(id)`
-
-### `id, err = client:enableoutput(id)`
-
-### `id, err = client:toggleoutput(id)`
-
-### `res, err = client:outputs()`
-
-### `res, err = client:config()`
-
-### `res, err = client:commands()`
-
-### `res, err = client:notcommands()`
-
-### `res, err = client:tagtypes()`
-
-### `res, err = client:urlhandlers()`
-
-### `res, err = client:decoders()`
-
-### `ok, err = client:mount(path,uri)`
-
-### `ok, err = client:unmount(path)`
-
-### `res, err = client:listmounts()`
-
-### `res, err = client:listneighbors()`
-
-### `ok, err = client:subscribe(name)`
-
-### `ok, err = client:unsubscribe(name)`
-
-### `res, err = client:channels()`
-
-### `res, err = client:readmessages()`
-
-### `ok, err = client:sendmessage(name, message)`
 
 ## LICENSE
 
