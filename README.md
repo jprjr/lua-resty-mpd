@@ -374,6 +374,10 @@ local res, err = client:list('title','group','album','group','albumartist')
 
 ## Changelog
 
+### Version 5.0.1
+
+Minor bugfix, return a socket error if not connected.
+
 ### Version 5.0.0
 
 Complete rewrite, client commands (list, play, etc) should be
