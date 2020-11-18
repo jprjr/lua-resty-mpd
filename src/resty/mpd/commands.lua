@@ -329,6 +329,7 @@ function commands:close()
   end
 
   local ok, err = self.socket:close()
+  self.socket = nil
 
   qnext(self)
   return ok, err

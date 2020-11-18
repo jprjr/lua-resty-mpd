@@ -997,6 +997,7 @@ local function require_resty_mpd_commands()
     end
   
     local ok, err = self.socket:close()
+    self.socket = nil
   
     qnext(self)
     return ok, err
