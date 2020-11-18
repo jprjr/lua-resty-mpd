@@ -273,7 +273,9 @@ The URL should be in one of two formats:
 * `tcp://host` (implied port 6600)
 * `path/to/socket` (does not have to be absolute)
 
-### ok, err = client:settimeout(ms)
+You can also call this as `client:connect(host,port)` for TCP connections.
+
+### `ok, err = client:settimeout(ms)`
 
 Sets the socket timeout in milliseconds, or use `nil` to
 represent no timeout.
@@ -304,7 +306,8 @@ example:
 `mpd:50(No such file)`
 
 Any socket-related error messaged will begin with `socket:`, these
-are non-recoverable (you should disconnect/quit/etc).
+are non-recoverable (you should disconnect/quit/etc). The exception
+to this is `idle`, see below.
 
 ### `client:idle()`
 
@@ -322,15 +325,15 @@ command being queued).
 
 ### General usage
 
-Generally-speaking you just send values like listed in the docs. For example, the MPD protocol
-documentation has the following prototype for the `list` command:
+Generally-speaking you just send values like listed in the MPD protocol documentation.
+For example, the MPD protocol documentation has the following prototype for the `list` command:
 
 `list {TYPE} {FILTER} [group {GROUPTYPE}]`
 
 This would translate to:
 
 ```lua
-response, err = client:list(type,filter,group,grouptype)
+response, err = client:list(type,filter,'group',grouptype)
 ```
 
 For functions that take ranges, you use separate parameters for each part of the range. For
@@ -341,7 +344,7 @@ example, using the `find` command, which lets you specify a `window` range:
 This becomes
 
 ```lua
-response, err = client:find(filter,sort,type,window,start,end)
+response, err = client:find(filter,'sort',type,'window',start,end)
 ```
 
 For optional parameters, just leave them out. If you wanted to call
@@ -349,7 +352,7 @@ For optional parameters, just leave them out. If you wanted to call
 
 
 ```lua
-response, err = client:find(filter,window,start,end)
+response, err = client:find(filter,'window',start,end)
 ```
 
 Or for just a filter:
@@ -366,7 +369,7 @@ example:
 local res, err = client:list('title','group','album','group','albumartist')
 ```
 
-Res will be an array-like table, each entry will contain a `title`, `album`, and
+`res` will be an array-like table, each entry will contain a `title`, `album`, and
 `albumartist` key.
 
 ## Changelog
