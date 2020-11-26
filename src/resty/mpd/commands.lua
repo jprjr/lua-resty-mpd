@@ -35,15 +35,17 @@ end
 
 local function cond_wrapper(f)
   return function(self,...)
-    if not self.socket then
-      return nil,'socket:not connected'
-    end
     local cond = self._backend.condition.new()
 
     self.stack:push(cond)
     if self.stack:front() ~= cond then
       self.socket:signal()
       cond:wait()
+    end
+
+    -- in case we got disconnected before getting queued
+    if not self.socket then
+      return nil, 'socket:not connected'
     end
 
     local ret, err = f(self,...)
@@ -340,9 +342,6 @@ function commands:idle()
   -- some duplication -- idle is the only command
   -- that can be interrupted, need to watch for
   -- our object's condvar
-  if not self.socket then
-    return nil, 'socket:not connected'
-  end
 
   local cond = self._backend.condition.new()
   local response = {}
@@ -352,6 +351,11 @@ function commands:idle()
   self.stack:push(cond)
   if self.stack:front() ~= cond then
     cond:wait()
+  end
+
+  -- in case we got disconnected before getting queued
+  if not self.socket then
+    return nil, 'socket:not connected'
   end
 
   -- while we were waiting something else may have gotten queued,
