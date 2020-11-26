@@ -163,7 +163,7 @@ function socket:tryreceive(param,f)
 
   data, err = self:receive(param)
 
-  if not err and not socket_ready then
+  if not err and not condvar_ready then
     -- this means we called receive because of
     -- a timeout, so set the err flag
     err = 'socket:timeout'
