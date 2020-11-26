@@ -232,7 +232,7 @@ local function require_resty_mpd_backend_cqueues()
   
     data, err = self:receive(param)
   
-    if not err and not socket_ready then
+    if not err and not condvar_ready then
       -- this means we called receive because of
       -- a timeout, so set the err flag
       err = 'socket:timeout'
@@ -703,15 +703,17 @@ local function require_resty_mpd_commands()
   
   local function cond_wrapper(f)
     return function(self,...)
-      if not self.socket then
-        return nil,'socket:not connected'
-      end
       local cond = self._backend.condition.new()
   
       self.stack:push(cond)
       if self.stack:front() ~= cond then
         self.socket:signal()
         cond:wait()
+      end
+  
+      -- in case we got disconnected before getting queued
+      if not self.socket then
+        return nil, 'socket:not connected'
       end
   
       local ret, err = f(self,...)
@@ -1008,9 +1010,6 @@ local function require_resty_mpd_commands()
     -- some duplication -- idle is the only command
     -- that can be interrupted, need to watch for
     -- our object's condvar
-    if not self.socket then
-      return nil, 'socket:not connected'
-    end
   
     local cond = self._backend.condition.new()
     local response = {}
@@ -1020,6 +1019,11 @@ local function require_resty_mpd_commands()
     self.stack:push(cond)
     if self.stack:front() ~= cond then
       cond:wait()
+    end
+  
+    -- in case we got disconnected before getting queued
+    if not self.socket then
+      return nil, 'socket:not connected'
     end
   
     -- while we were waiting something else may have gotten queued,
@@ -1744,7 +1748,7 @@ end
 
 local function require_resty_mpd()
   local mpd = {
-    _VERSION = '5.0.0'
+    _VERSION = '5.0.2'
   }
   
   local backend = resty_mpd_packages.resty_mpd_backend
