@@ -1,5 +1,6 @@
 local tcp = require'socket'.tcp
 local unix = require'socket.unix'
+local unpack = unpack or table.unpack
 
 local function nyi()
   return error('not implemented')
@@ -37,7 +38,7 @@ function socket:connect(host,port)
     s:settimeout(self.timeout)
   end
 
-  ok, err = s:connect(table.unpack(args))
+  ok, err = s:connect(unpack(args))
 
   if ok then
     self.socket = s

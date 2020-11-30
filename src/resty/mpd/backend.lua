@@ -63,8 +63,8 @@ local function backend_wrap(lib)
     end
     -- override the 'new' function to use our proxy as a metatable
     proxy[t]['new'] = function()
-      local s = lib[t].new()
-      return setmetatable(s,{__index = proxy[t]})
+      local sock = lib[t].new()
+      return setmetatable(sock,{__index = proxy[t]})
     end
   end
 

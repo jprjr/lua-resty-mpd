@@ -1,5 +1,6 @@
 -- luacheck: globals ngx
 local ngx_sem = require'ngx.semaphore'
+local unpack = unpack or table.unpack
 
 local socket    = {}
 local condition = {}
@@ -56,10 +57,10 @@ function socket:connect(host,port)
   elseif host then
     args = { 'unix:' .. host }
   else
-    return error('unable to parse ' .. url)
+    return error('unable to parse ' .. host)
   end
 
-  ok, err = s:connect(table.unpack(args))
+  ok, err = s:connect(unpack(args))
   if ok then
     self.socket = s
   end

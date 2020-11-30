@@ -1,5 +1,6 @@
 -- implements MPD commands
 local stack_lib = require'resty.mpd.stack'
+local unpack = unpack or table.unpack
 local commands = {}
 commands.__index = commands
 
@@ -201,7 +202,7 @@ local function validate_params(...)
         table.insert(newargs,a)
       end
     end
-    return f(table.unpack(newargs))
+    return f(unpack(newargs))
   end
 end
 
@@ -302,7 +303,7 @@ local function generic_send(cmd,s)
     if s then
       table.insert(args, { s })
     end
-    return send_and_read(self,cmd,table.unpack(args))
+    return send_and_read(self,cmd,unpack(args))
   end
 end
 
@@ -651,7 +652,7 @@ for _,k in ipairs({'prio'}) do
         table.insert(args,tostring(validator.f(rs[j])) .. ':' .. tostring(validator.f(rs[j+1])))
       end
 
-      return send_and_read(table.unpack(args))
+      return send_and_read(unpack(args))
     end)))
 end
 
@@ -665,7 +666,7 @@ for _,k in ipairs({'find','search','findadd','searchadd'}) do
 
     table.insert(args,{'file'})
 
-    return send_and_read(table.unpack(args))
+    return send_and_read(unpack(args))
   end)
 end
 
@@ -676,7 +677,7 @@ for _,k in ipairs({'count'}) do
     local args = { self, k }
     build_filter_args(args,rs)
 
-    return send_and_read(table.unpack(args))
+    return send_and_read(unpack(args))
   end)
 end
 
@@ -687,7 +688,7 @@ for _,k in ipairs({'findadd','searchadd'}) do
     local args = { self, k }
     build_filter_args(args,rs)
 
-    local _,err = send_and_read(table.unpack(args))
+    local _,err = send_and_read(unpack(args))
     return err == nil, err
   end)
 end
@@ -700,7 +701,7 @@ for _,k in ipairs({'searchaddpl'}) do
     local rs = {...}
     build_filter_args(args,rs)
 
-    local _,err = send_and_read(table.unpack(args))
+    local _,err = send_and_read(unpack(args))
     return err == nil, err
   end)
 end
@@ -719,7 +720,7 @@ for _,k in ipairs({'list'}) do
       [typ] = args[#args]
     }
 
-    return send_and_read(table.unpack(args))
+    return send_and_read(unpack(args))
   end)
 end
 
@@ -736,7 +737,7 @@ for _,k in ipairs({'prioid'}) do
         table.insert(args,mandatory_num(0).f(v))
       end
 
-      local _,err = send_and_read(table.unpack(args))
+      local _,err = send_and_read(unpack(args))
       return err == nil, err
     end))
 end

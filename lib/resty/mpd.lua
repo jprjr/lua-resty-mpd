@@ -255,6 +255,7 @@ end
 local function require_resty_mpd_backend_luasocket()
   local tcp = require'socket'.tcp
   local unix = require'socket.unix'
+  local unpack = unpack or table.unpack
   
   local function nyi()
     return error('not implemented')
@@ -292,7 +293,7 @@ local function require_resty_mpd_backend_luasocket()
       s:settimeout(self.timeout)
     end
   
-    ok, err = s:connect(table.unpack(args))
+    ok, err = s:connect(unpack(args))
   
     if ok then
       self.socket = s
@@ -359,6 +360,7 @@ end
 local function require_resty_mpd_backend_nginx()
   -- luacheck: globals ngx
   local ngx_sem = require'ngx.semaphore'
+  local unpack = unpack or table.unpack
   
   local socket    = {}
   local condition = {}
@@ -415,10 +417,10 @@ local function require_resty_mpd_backend_nginx()
     elseif host then
       args = { 'unix:' .. host }
     else
-      return error('unable to parse ' .. url)
+      return error('unable to parse ' .. host)
     end
   
-    ok, err = s:connect(table.unpack(args))
+    ok, err = s:connect(unpack(args))
     if ok then
       self.socket = s
     end
@@ -596,8 +598,8 @@ local function require_resty_mpd_backend()
       end
       -- override the 'new' function to use our proxy as a metatable
       proxy[t]['new'] = function()
-        local s = lib[t].new()
-        return setmetatable(s,{__index = proxy[t]})
+        local sock = lib[t].new()
+        return setmetatable(sock,{__index = proxy[t]})
       end
     end
   
@@ -668,6 +670,7 @@ end
 local function require_resty_mpd_commands()
   -- implements MPD commands
   local stack_lib = resty_mpd_packages.resty_mpd_stack
+  local unpack = unpack or table.unpack
   local commands = {}
   commands.__index = commands
   
@@ -869,7 +872,7 @@ local function require_resty_mpd_commands()
           table.insert(newargs,a)
         end
       end
-      return f(table.unpack(newargs))
+      return f(unpack(newargs))
     end
   end
   
@@ -970,7 +973,7 @@ local function require_resty_mpd_commands()
       if s then
         table.insert(args, { s })
       end
-      return send_and_read(self,cmd,table.unpack(args))
+      return send_and_read(self,cmd,unpack(args))
     end
   end
   
@@ -1319,7 +1322,7 @@ local function require_resty_mpd_commands()
           table.insert(args,tostring(validator.f(rs[j])) .. ':' .. tostring(validator.f(rs[j+1])))
         end
   
-        return send_and_read(table.unpack(args))
+        return send_and_read(unpack(args))
       end)))
   end
   
@@ -1333,7 +1336,7 @@ local function require_resty_mpd_commands()
   
       table.insert(args,{'file'})
   
-      return send_and_read(table.unpack(args))
+      return send_and_read(unpack(args))
     end)
   end
   
@@ -1344,7 +1347,7 @@ local function require_resty_mpd_commands()
       local args = { self, k }
       build_filter_args(args,rs)
   
-      return send_and_read(table.unpack(args))
+      return send_and_read(unpack(args))
     end)
   end
   
@@ -1355,7 +1358,7 @@ local function require_resty_mpd_commands()
       local args = { self, k }
       build_filter_args(args,rs)
   
-      local _,err = send_and_read(table.unpack(args))
+      local _,err = send_and_read(unpack(args))
       return err == nil, err
     end)
   end
@@ -1368,7 +1371,7 @@ local function require_resty_mpd_commands()
       local rs = {...}
       build_filter_args(args,rs)
   
-      local _,err = send_and_read(table.unpack(args))
+      local _,err = send_and_read(unpack(args))
       return err == nil, err
     end)
   end
@@ -1387,7 +1390,7 @@ local function require_resty_mpd_commands()
         [typ] = args[#args]
       }
   
-      return send_and_read(table.unpack(args))
+      return send_and_read(unpack(args))
     end)
   end
   
@@ -1404,7 +1407,7 @@ local function require_resty_mpd_commands()
           table.insert(args,mandatory_num(0).f(v))
         end
   
-        local _,err = send_and_read(table.unpack(args))
+        local _,err = send_and_read(unpack(args))
         return err == nil, err
       end))
   end
@@ -1748,7 +1751,7 @@ end
 
 local function require_resty_mpd()
   local mpd = {
-    _VERSION = '5.0.2'
+    _VERSION = '5.0.3'
   }
   
   local backend = resty_mpd_packages.resty_mpd_backend
