@@ -867,10 +867,23 @@ local sticker_subcommands = {
     mandatory_string,
     mandatory_string,
     cond_wrapper(function(self,typ,uri,name,eq,val)
+      local args = {
+        self,
+        'sticker',
+        'find',
+        typ,
+        uri,
+        name
+      }
+
       if eq and val then
         val = mandatory_string.f(val)
+        table.insert(args,eq)
+        table.insert(args,val)
       end
-      local res, err = send_and_read(self,'sticker','find',typ,uri,name,eq,val,{'file'})
+
+      table.insert(args, {'file'})
+      local res, err = send_and_read(unpack(args))
       if err then return res, err end
 
       for _,v in ipairs(res) do

@@ -1,5 +1,5 @@
 local mpd = {
-  _VERSION = '5.0.3'
+  _VERSION = '5.0.4'
 }
 
 local backend = require'resty.mpd.backend'
