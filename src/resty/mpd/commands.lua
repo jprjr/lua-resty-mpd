@@ -300,8 +300,11 @@ end
 local function generic_send(cmd,s)
   return function(self,...)
     local args = {...}
-    if s then
-      table.insert(args, { s })
+    if type(s) == 'string' then
+      s = { s }
+    end
+    if(type(s) == 'table') then
+      table.insert(args,s)
     end
     return send_and_read(self,cmd,unpack(args))
   end
@@ -515,7 +518,7 @@ for _,k in ipairs({'listfiles','listall','listallinfo','lsinfo'}) do
     optional_string,
     end_params,
     cond_wrapper(
-    generic_send(k)))
+    generic_send(k,{'file','directory','playlist'})))
 end
 
 -- string?
