@@ -503,12 +503,22 @@ end
 
 -- string
 -- @return table
-for _,k in ipairs({'listplaylist','listplaylistinfo','readcomments','getfingerprint'}) do
+for _,k in ipairs({'readcomments','getfingerprint'}) do
   commands[k] = validate_params(
     mandatory_string,
     end_params,
     cond_wrapper(
     generic_send(k)))
+end
+
+-- string
+-- @return array
+for _,k in ipairs({'listplaylist','listplaylistinfo'}) do
+  commands[k] = validate_params(
+    mandatory_string,
+    end_params,
+    cond_wrapper(
+    generic_send(k,'file')))
 end
 
 -- string?
