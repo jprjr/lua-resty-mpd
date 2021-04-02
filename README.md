@@ -374,6 +374,10 @@ local res, err = client:list('title','group','album','group','albumartist')
 
 ## Changelog
 
+### Version 5.1.0
+
+Adds the new `binarylimit` protocol command.
+
 ### Version 5.0.1
 
 Minor bugfix, return a socket error if not connected.
