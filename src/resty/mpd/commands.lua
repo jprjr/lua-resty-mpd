@@ -467,7 +467,7 @@ end
 
 -- int>=0
 -- @return boolean
-for _,k in ipairs({ 'crossfade','disableoutput','enableoutput','toggleoutput' }) do
+for _,k in ipairs({ 'crossfade','disableoutput','enableoutput','toggleoutput','binarylimit' }) do
   commands[k] = validate_params(
     mandatory_num(0),
     end_params,
