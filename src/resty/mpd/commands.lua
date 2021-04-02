@@ -994,14 +994,13 @@ for _,k in ipairs({'swap','swapid'}) do
 end
 
 -- int>0?
--- @return table
+-- @return array
 for _,k in ipairs({'playlistid'}) do
   commands[k] = validate_params(
     optional_num(0),
     end_params,
-    bool_wrapper(
     cond_wrapper(
-    generic_send(k))))
+    generic_send(k,'file')))
 end
 
 -- string int>0
