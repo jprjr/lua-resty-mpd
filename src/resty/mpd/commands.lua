@@ -542,15 +542,14 @@ for _,k in ipairs({'update','rescan'}) do
 end
 
 -- string int>=0?
--- @return boolean
+-- @return table
 for _,k in ipairs({'addid'}) do
   commands[k] = validate_params(
     mandatory_string,
     optional_num(0),
     end_params,
-    bool_wrapper(
     cond_wrapper(
-    generic_send(k))))
+    generic_send(k)))
 end
 
 -- int>=0 float>=0
