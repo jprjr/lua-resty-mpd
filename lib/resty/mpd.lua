@@ -1137,7 +1137,7 @@ local function require_resty_mpd_commands()
   
   -- int>=0
   -- @return boolean
-  for _,k in ipairs({ 'crossfade','disableoutput','enableoutput','toggleoutput' }) do
+  for _,k in ipairs({ 'crossfade','deleteid','disableoutput','enableoutput','toggleoutput','binarylimit' }) do
     commands[k] = validate_params(
       mandatory_num(0),
       end_params,
@@ -1775,7 +1775,7 @@ end
 
 local function require_resty_mpd()
   local mpd = {
-    _VERSION = '5.0.7'
+    _VERSION = '5.1.1'
   }
   
   local backend = resty_mpd_packages.resty_mpd_backend
