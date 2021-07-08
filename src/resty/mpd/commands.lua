@@ -1,6 +1,7 @@
 -- implements MPD commands
 local stack_lib = require'resty.mpd.stack'
 local unpack = unpack or table.unpack
+local insert = table.insert
 local commands = {}
 commands.__index = commands
 
@@ -277,16 +278,37 @@ local function send_and_read(self,...)
             i = i + 1
             response[i] = {}
             for k,v in pairs(holds) do
-              response[i][k] = v
+              if response[i][k] == nil then
+                response[i][k] = v
+              else
+                if type(response[i][k]) ~= 'table' then
+                  response[i][k] = { response[i][k] }
+                end
+                insert(response[i][k],v)
+              end
             end
           end
           if holds[key] ~= nil then
             holds[key] = val
           else
-            response[i][key] = val
+            if response[i][key] == nil then
+              response[i][key] = val
+            else
+              if type(response[i][key]) ~= 'table' then
+                response[i][key] = { response[i][key] }
+              end
+              insert(response[i][key],val)
+            end
           end
         else
-          response[key] = val
+          if response[key] == nil then
+            response[key] = val
+          else
+            if type(response[key]) ~= 'table' then
+              response[key] = { response[key] }
+            end
+            insert(response[key],val)
+          end
         end
 
         if key == 'binary' then
