@@ -498,6 +498,19 @@ for _,k in ipairs({ 'crossfade','deleteid','disableoutput','enableoutput','toggl
     generic_send(k))))
 end
 
+-- int>=0 string string
+-- @return boolean
+for _,k in ipairs({ 'addtagid', 'outputset' }) do
+  commands[k] = validate_params(
+    mandatory_num(0),
+    mandatory_string,
+    mandatory_string,
+    end_params,
+    bool_wrapper(
+    cond_wrapper(
+    generic_send(k))))
+end
+
 -- string string
 -- @return boolean
 for _,k in ipairs({ 'playlistadd','rename','sendmessage','mount'}) do
@@ -588,7 +601,7 @@ end
 
 -- float
 -- @return boolean
-for _,k in ipairs({'seekcur'}) do
+for _,k in ipairs({'seekcur','volume'}) do
   commands[k] = validate_params(
     mandatory_num(),
     end_params,
