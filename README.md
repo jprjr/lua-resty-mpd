@@ -374,6 +374,14 @@ local res, err = client:list('title','group','album','group','albumartist')
 
 ## Changelog
 
+### Version 5.2.1
+
+Adds three missing commands:
+
+* `addtagid`
+* `outputset`
+* `volume`
+
 ### Version 5.2.0
 
 Behavior change - MPD can return multiple responses with the same key. For example,
