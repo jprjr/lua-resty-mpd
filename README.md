@@ -374,6 +374,45 @@ local res, err = client:list('title','group','album','group','albumartist')
 
 ## Changelog
 
+### Version 5.2.0
+
+Behavior change - MPD can return multiple responses with the same key. For example,
+if a FLAC file lists multiple `COMPOSER` tags, MPD will return:
+
+```
+Album: An Album
+Artist: An Artist
+Composer: First Composer
+Composer: Second Composer
+```
+
+Before version 5.2.0, lua-resty-mpd would only return the last tag, so your response would
+be something like:
+
+```
+{
+  album = "An Album",
+  artist = "An Artist",
+  composer = "Second Composer",
+}
+```
+
+Starting with version 5.2.0, if a duplicate key is detected, then the value will be
+turned into a table, like:
+
+
+```
+{
+  album = "An Album",
+  artist = "An Artist",
+  composer = { "First Composer", "Second Composer" },
+}
+```
+
+### Version 5.1.1
+
+Adds a missing command: `deleteid`
+
 ### Version 5.1.0
 
 Adds the new `binarylimit` protocol command.
