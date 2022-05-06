@@ -212,14 +212,17 @@ local function send_and_read(self,...)
   local binary = 0
   local response = {}
   local tokens = {}
+  local args = {...}
   local splits = nil
   local i = 0
   local holds = {}
 
-  for _,a in ipairs({...}) do
-    if type(a) == 'table' then
+  for j=1,#args do
+    local a = args[j]
+    local ta = type(a)
+    if ta == 'table' then
       splits = a
-    else
+    elseif ta ~= 'nil' then
       table.insert(tokens,a)
     end
   end

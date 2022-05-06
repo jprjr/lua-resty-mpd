@@ -882,14 +882,17 @@ local function require_resty_mpd_commands()
     local binary = 0
     local response = {}
     local tokens = {}
+    local args = {...}
     local splits = nil
     local i = 0
     local holds = {}
   
-    for _,a in ipairs({...}) do
-      if type(a) == 'table' then
+    for j=1,#args do
+      local a = args[j]
+      local ta = type(a)
+      if ta == 'table' then
         splits = a
-      else
+      elseif ta ~= 'nil' then
         table.insert(tokens,a)
       end
     end
@@ -1810,7 +1813,7 @@ end
 
 local function require_resty_mpd()
   local mpd = {
-    _VERSION = '5.2.1'
+    _VERSION = '5.2.2'
   }
   
   local backend = resty_mpd_packages.resty_mpd_backend
