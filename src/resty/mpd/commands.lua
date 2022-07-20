@@ -367,7 +367,7 @@ function commands:close()
 end
 
 
-function commands:idle()
+function commands:idle(subsystems)
   -- some duplication -- idle is the only command
   -- that can be interrupted, need to watch for
   -- our object's condvar
@@ -394,7 +394,16 @@ function commands:idle()
     return {}
   end
 
-  _, err = self.socket:send('idle\n')
+  subsystems = subsystems or {}
+  if type(subsystems) ~= 'table' then
+    subsystems = { subsystems }
+  end
+  local cmd = { 'idle' }
+  for _,s in ipairs(subsystems) do
+    insert(cmd,s)
+  end
+
+  _, err = self.socket:send(table.concat(cmd,' ') .. '\n')
   if err then
     -- this means we've been disconnected,
     -- advance the queue and return the error
